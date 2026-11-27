@@ -54,17 +54,34 @@ try{
       const a=sample(at),b=sample(at+.05);
       return {links:bank.plates.count,dx:b.x-a.x,palletDx:b.p[0]-a.p[0],top:a.y+.024,palletBottom:a.p[1],wheelAngle:b.theta-a.theta};
     });
-    return {before,views,edges,chain,hallPosts:d.site.columns.length,markedStaging:d.site.staging.length,receipt:!!c.hall.meter};
+    const sorter=p.sorting,ring=d.sorter,loop=sorter.loop,drive=1.48;
+    const induction=sorter.induction.routes.map((route,inlet)=>{
+      const load=sorter.loads.find(item=>item.inlet===inlet),entry=route[0],join=route.at(-1);
+      const ls=route.slice(1).map((b,i)=>Math.hypot(b[0]-route[i][0],b[1]-route[i][1]));
+      const metres=ls.reduce((a,b)=>a+b,0),arrive=(ring.right-join[0]-load.slot*loop.length/ring.carts)/drive;
+      const pose=(t)=>{sorter.update(t);return [load.box.position.x,load.box.position.z,load.box.visible];};
+      const onTrunk=pose(arrive-(metres-1.5)/1.2);
+      let maxGap=0,allSeen=true,prev;
+      for(let ahead=1.5;ahead<metres+.30;ahead+=.06){
+        const v=pose(arrive-(metres-ahead)/1.2);
+        if(prev)maxGap=Math.max(maxGap,Math.hypot(v[0]-prev[0],v[1]-prev[1]));
+        allSeen=allSeen && v[2];prev=v;
+      }
+      const onCart=pose(arrive+.10);
+      return {trunkError:Math.hypot(onTrunk[0]-entry[0]-1.5,onTrunk[1]-entry[1]),cartError:Math.hypot(onCart[0]-join[0]+drive*.10,onCart[1]-join[1]),allSeen,maxGap};
+    });
+    return {before,views,edges,chain,induction,hallPosts:d.site.columns.length,markedStaging:d.site.staging.length,receipt:!!c.hall.meter};
   });
   report.geometry=poses;
   assert(poses.views.every(([,p,h,d,t])=>h&&d&&t&&JSON.stringify(p)===JSON.stringify(poses.before)));
   assert(poses.edges.length===3 && poses.edges.every(x=>x>.049&&x<.061));
   assert(poses.chain.length===2 && poses.chain.every(c=>c.links>100 && Math.abs(c.dx-c.palletDx)<.00003 && Math.abs(c.palletBottom-c.top)<.001 && Math.abs(c.wheelAngle)>.09));
+  assert(poses.induction.every(path=>path.allSeen && path.trunkError<.001 && path.cartError<.001 && path.maxGap<.08));
   assert(poses.receipt && poses.markedStaging>0 && poses.hallPosts>0);
   await page.locator('.cargo-map-tags').getByRole('button',{name:'收货计量',exact:true}).click();
   assert.equal(await page.getByRole('combobox',{name:'设备定位'}).locator('option:checked').innerText(),'收货扫码称重');
   for(const [area,cue,time,name] of [
-    ['sorting','meter',3,'02-receiving'],['sorting',null,24,'03-ring'],['sorting','feed',null,'04-infeed'],
+    ['sorting','meter',3,'02-receiving'],['sorting','distribute',null,'02b-distribution'],['sorting',null,24,'03-ring'],['sorting','feed',null,'04-infeed'],
     ['pallet','chain',null,'05-chain'],['dock',null,11,'06-docks'],['dock','truck',11,'07-unloading'],
     ['dock','handoff',12,'08-handoff'],['tables',null,12,'09-packing'],['tables','build',16,'10-building'],
     ['overview',null,10,'11-cad']

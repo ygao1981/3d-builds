@@ -46,7 +46,7 @@ function traces(data,plant) {
 export function targets(data) {
   const sort=data.sorter, p=data.pallet, d=data.dock;
   return {
-    sorting:sort.feeds.map(([a,c],i)=>({label:'供包台 '+(i+1),at:middle(a,c),height:sort.deck})).concat(data.site?[{label:'收货扫码称重',at:data.site.receipt,height:.85}]:[]),
+    sorting:sort.feeds.map(([a,c],i)=>({label:'供包台 '+(i+1),at:middle(a,c),height:sort.deck})).concat(data.site?[{label:'收货扫码称重',at:data.site.receipt,height:.85}]:[]).concat(data.site?.distribution?[{label:'分流与排队',at:data.site.branches[Math.floor(sort.feeds.length/2)][0],height:sort.deck}]:[]),
     chutes:sort.chutes.map(([a,c],i)=>({label:'滚筒滑槽 '+(i+1),at:middle(a,c),height:(sort.chuteTop+sort.chuteBottom)/2})),
     pallet:[...p.stackers.map((at,i)=>({label:'拆盘机 '+(i+1),at,height:p.deck})),
       ...p.turns.map((at,i)=>({label:'旋转台 '+(i+1),at,height:p.deck})),
@@ -120,7 +120,10 @@ export async function openCargo(canvas, onStatus) {
     if(chosen && !chosen.wide){
       if(key==='pallet')return local(chosen.at,focus>=nav.pallet.length-1?9:6.8,5.4,chosen.height+.16);
       if(key==='chutes')return local(chosen.at,8,8,chosen.height);
-      if(key==='sorting')return local(chosen.at,focus===data.sorter.feeds.length?9.5:13,9,chosen.height+.35);
+      if(key==='sorting'){
+        const span=focus>data.sorter.feeds.length?23:focus===data.sorter.feeds.length?9.5:13;
+        return local(chosen.at,span,focus>data.sorter.feeds.length?15:9,chosen.height+.35);
+      }
       return local(chosen.at,key==='dock'?14:10,key==='dock'?17:8,chosen.height+.65);
     }
     if(mode==='3d' && !chosen){

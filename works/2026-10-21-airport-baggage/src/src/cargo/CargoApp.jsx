@@ -13,7 +13,7 @@ const views=[
   ['tables','组板作业','理货、组板与系网','box'],
 ];
 const modes=[['3d','三维演示'],['overlay','图纸叠合'],['paper','工艺原图']];
-const replayLabels={feed:'斜向供包',unload:'滑槽卸载',release:'底部拆盘',turn:'托盘转向',transfer:'顶升移载',chain:'横向链条输送',meter:'收货扫码称重',truck:'货车卸货',handoff:'整板交接',build:'纸箱组板',supply:'叉车送料'};
+const replayLabels={feed:'斜向供包',unload:'滑槽卸载',release:'底部拆盘',turn:'托盘转向',transfer:'顶升移载',chain:'横向链条输送',meter:'收货扫码称重',distribute:'分流排队',truck:'货车卸货',handoff:'整板交接',build:'纸箱组板',supply:'叉车送料'};
 const capture=new URLSearchParams(location.search).has('capture');
 
 function describe(key,d){

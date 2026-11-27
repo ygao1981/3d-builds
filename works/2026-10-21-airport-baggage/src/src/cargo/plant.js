@@ -120,6 +120,8 @@ function sorterPlant(spec,scenes,site) {
     }
   }
   cells.frustumCulled=edges.frustumCulled=false;
+  if(site?.distribution)cues.distribute={view:'sorting',focus:spec.feeds.length+1,
+    time:mod(when(spec.right-join[0])-routeLengths[chosen.inlet]/1.2+1.1,cycle)};
   if(site)cues.meter={view:'sorting',focus:spec.feeds.length,time:2.6};
   update(0);return {group,update,loop,loads,cues,induction};
 }

@@ -56,7 +56,13 @@ export function buildInduction(b,group,spec,site) {
     if(branch){
       for(let j=1;j<branch.length;j++)conveyor(b,branch[j-1],branch[j],deck+.02,deck+.02,span);
       const last=branch.at(-1),along=(last[0]-start[0])*dx+(last[1]-start[1])*dz;
-      routes.push([...branch,point(Math.max(0,along+.3),0),join]);
+      const handoff=point(Math.max(0,along+.3),0);
+      if(site.distribution){
+        const trunk=site.distribution.at(-1),split=branch[0];
+        // Keep the same carton on the registered common belt until its branch takes it.
+        const entry=[Math.max(site.distribution.at(-2)[0]-6,split[0]-6.0),trunk[1]];
+        routes.push([entry,[split[0]-.8,trunk[1]],...branch,handoff,join]);
+      }else routes.push([...branch,handoff,join]);
     }else routes.push([start,join]);
   }
   return {noses,routes};

@@ -25,7 +25,7 @@ try{
   const fps=24;
   const cuts=[
     ['overview','3d',-1,2,13,1],replay('truck',3,2.3),...(events.meter?[replay('meter',2.5,1)]:[]),
-    replay('feed',3,1.25),replay('unload',3,1.25),replay('chain',4,1.55),
+    ...(events.distribute?[replay('distribute',3,1.8)]:[]),replay('feed',3,1.25),replay('unload',3,1.25),replay('chain',4,1.55),
     replay('turn',2,1.45),replay('supply',2,2.5),replay('build',3,2.7),
     replay('handoff',3.5,1.7),['overview','overlay',-1,1,16,1],['overview','3d',-1,1,18,1],
   ];
