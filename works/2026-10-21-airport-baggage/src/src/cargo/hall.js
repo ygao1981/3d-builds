@@ -1,6 +1,6 @@
 import * as T from 'three';
-import {amber,batch,dark,metal,platform,side,steel} from './hardware.js';
-import {dressStaging,fitReceipt} from './workcells.js';
+import {amber,batch,dark,frame,metal,platform,side,steel} from './hardware.js';
+import {dressStaging,fitReceipt,parcelBuffer} from './workcells.js';
 
 const concrete=metal('#97a49f',.92,.01),fascia=metal('#53666d',.76,.25),wall=metal('#c8ceca',.80,.11);
 const pale=metal('#e4ddbf',.88,0),glazing=metal('#62818a',.28,.55),ochre=metal('#d5a23c',.79,.09);
@@ -38,6 +38,52 @@ function surface(group,points,material){
 function groundBay(b,x,z,w,d){
   for(const sign of [-1,1]){
     b.box(x+sign*w/2,.012,z,.091,.018,d,pale);b.box(x,.012,z+sign*d/2,w,.018,.091,pale);
+  }
+}
+function servicePlatform(b,outline){
+  const h=2.90;
+  // Grating bars stop at the surveyed polygon. Open slots show the machinery below.
+  for(const axis of [0,1]){
+    const cross=1-axis,coords=outline.map(p=>p[axis]),step=axis===0?.15:.52;
+    for(let at=Math.min(...coords)+step/2;at<Math.max(...coords);at+=step){
+      const hits=[];
+      outline.forEach((p,i)=>{
+        const q=outline[(i+1)%outline.length];
+        if((p[axis]<=at)===(q[axis]<=at))return;
+        hits.push(p[cross]+(q[cross]-p[cross])*(at-p[axis])/(q[axis]-p[axis]));
+      });
+      hits.sort((a,c)=>a-c);
+      for(let i=1;i<hits.length;i+=2){
+        const span=hits[i]-hits[i-1],mid=(hits[i]+hits[i-1])/2;
+        if(axis===0)b.box(at,h-.025,mid,.034,.05,span,steel);
+        else b.box(mid,h-.046,at,span,.045,.028,steel);
+      }
+    }
+  }
+  outline.forEach(([x,z],i)=>{
+    const [xx,zz]=outline[(i+1)%outline.length];
+    b.beam([x,h-.14,z],[xx,h-.14,zz],.12,.22,frame);
+    const n=Math.ceil(Math.hypot(xx-x,zz-z)/4.5);
+    for(let k=0;k<n;k++){
+      const px=x+(xx-x)*k/n,pz=z+(zz-z)*k/n;
+      b.box(px,(h-.18)/2,pz,.125,h-.18,.125,frame);b.box(px,.035,pz,.28,.07,.28,steel);
+    }
+  });
+  // The single stair on this platform projects 3.21 m north, 4.23 m west of the NE corner.
+  const [east,zTop]=outline[1],xStair=east-4.23,run=3.21,width=.8,steps=16;
+  for(let i=0;i<steps;i++){
+    const z=zTop-run+run*(i+.5)/steps,y=h*(i+1)/steps;
+    b.box(xStair,y-.024,z,width,.048,run/steps,steel);
+    b.box(xStair,y+.001,z-run/(2*steps)+.012,width,.006,.024,ochre);
+  }
+  for(const sign of [-1,1]){
+    const x=xStair+sign*(width/2+.029);
+    b.beam([x,.10,zTop-run],[x,h-.06,zTop],.06,.14,frame);
+    for(const t of [0,.5,1]){
+      const y=h*t,z=zTop-run+run*t;
+      b.box(x,y+.49,z,.035,.98,.035,side);
+    }
+    for(const lift of [.53,.99])b.beam([x,lift,zTop-run],[x,h+lift,zTop],.044,.044,ochre);
   }
 }
 export function createHall(data,assets,texture){
@@ -99,7 +145,9 @@ export function createHall(data,assets,texture){
       new T.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false,opacity:.7,toneMapped:false}));
     mesh.rotation.x=-Math.PI/2;mesh.position.set(r.centre[0],.006,r.centre[1]);group.add(mesh);
   }
-  const gates=[...bays.map(b=>({...b,width:3.25})),...data.dock.handoffs.map((row,i)=>({id:'交接 '+(i+1),x:row[0][0]+data.dockOffset[0],width:3.60}))].sort((a,c)=>a.x-c.x);
+  const equipment=data.site?.distributionEquipment;
+  const receiptDoors=(equipment?.receipts||[]).map(([x],i)=>({id:'收货 '+(i+1),x,width:3.1}));
+  const gates=[...bays.map(b=>({...b,width:3.25})),...data.dock.handoffs.map((row,i)=>({id:'交接 '+(i+1),x:row[0][0]+data.dockOffset[0],width:3.60})),...receiptDoors].sort((a,c)=>a.x-c.x);
   function rearWall(a,c){
     if(c<=a)return;
     upper.box((a+c)/2,2.52,dockZ,c-a,3.20,.19,wall);
@@ -187,7 +235,32 @@ export function createHall(data,assets,texture){
       b.box(x+2.22,.61,z,.11,1.22,.11,side);b.box(x+2.22,1.33,z,.49,.29,.19,dark);
     }
   }
-  const meter=data.site?fitReceipt(group,data.site.receipt,assets):null;
+  const receipts=equipment?.receipts?equipment.receipts.map((at,i)=>fitReceipt(group,at,assets,[3.15,.80,2.65][i],i,dockZ)):
+    data.site?[fitReceipt(group,data.site.receipt,assets)]:[];
+  if(equipment?.serviceDeck)servicePlatform(b,equipment.serviceDeck);
+  if(equipment?.receipts){
+    const first=receipts[0],last=receipts.at(-1),left=first.at[0]-.68,right=last.at[0]+.68;
+    const front=first.at[1]+first.end,back=equipment.sources[0][0][1],middle=(front+back)/2;
+    // A single diagram volume joins the six external interfaces. Its interior is unspecified.
+    const cap=2.35,midX=(left+right)/2;
+    const region=new T.Mesh(new T.BoxGeometry(right-left,cap,back-front),
+      new T.MeshBasicMaterial({color:'#819a98',transparent:true,opacity:.24,depthWrite:false}));
+    region.position.set(midX,cap/2,middle);group.add(region);
+    const edge=new T.LineSegments(new T.EdgesGeometry(region.geometry),new T.LineBasicMaterial({color:'#688380'}));
+    region.add(edge);
+    for(const x of [left,right])for(let z=front;z<back;z+=1.25){
+      const length=Math.min(.8,back-z);b.box(x,.016,z+length/2,.056,.016,length,ochre);
+    }
+    const faces=[...receipts.map(({at,end})=>[at[0],at[1]+end,.8,.8]),
+      ...equipment.sources.map(path=>[path[0][0],path[0][1],path[0][2],1.2])];
+    for(const [x,z,h,w] of faces){
+      for(const sign of [-1,1])b.box(x+sign*(w/2+.09),h+.34,z,.085,.82,.13,fascia);
+      b.box(x,h+.76,z,w+.26,.08,.13,fascia);
+    }
+    const sign=panelSign('上游工序示意',4.15);
+    sign.rotation.x=-Math.PI/2;sign.position.set(midX,cap+.025,middle);group.add(sign);
+  }
+  const buffer=equipment?parcelBuffer(group,b,data.site,data.sorter,assets):null;
   b.finish();upper.finish();
-  return {group,meter,overhead,dockUpper,bounds:[[x0,dockZ-apronDepth],[x1,z1]]};
+  return {group,meter:receipts[0],receipts,buffer,overhead,dockUpper,bounds:[[x0,dockZ-apronDepth],[x1,z1]]};
 }

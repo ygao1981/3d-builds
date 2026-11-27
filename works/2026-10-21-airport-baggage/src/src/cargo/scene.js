@@ -25,7 +25,10 @@ function traces(data,plant) {
   }
   const loop=plant.sorting.loop,s=data.sorter,p=data.pallet;
   trace('sorting',Array.from({length:241},(_,i)=>loop.at(i*loop.length/240)));
-  [...s.feeds,...s.chutes,...s.returns,...(data.site ? [data.site.distribution || data.site.feederTrunk,...data.site.branches] : [])].forEach(path=>trace('sorting',path));
+  const eq=data.site?.distributionEquipment;
+  const distribution=data.site?[data.site.distribution || data.site.feederTrunk,...plant.sorting.induction.branches.map(b=>[...b.path,b.centre])]:[];
+  [...s.feeds,...s.chutes,...s.returns,...distribution,...(eq?[eq.merge,...eq.sources,eq.slide]:[])].forEach(path=>trace('sorting',path));
+  if(eq)eq.buffer.rows.forEach((z,i)=>trace('sorting',[[eq.buffer.left[0],z],[i===3?eq.buffer.returnEnd:eq.buffer.right[0],z]]));
   p.turns.forEach((t,i)=>{
     trace('pallet',[p.inlets[i],t,[t[0],p.transfers[0][1]]]);
     const edge=i===0?p.transfers[0]:p.transfers.at(-1);
@@ -45,8 +48,14 @@ function traces(data,plant) {
 // All navigation targets come from the locally registered plan.
 export function targets(data) {
   const sort=data.sorter, p=data.pallet, d=data.dock;
+  const eq=data.site?.distributionEquipment;
+  const details=eq?[
+    {label:'排队与供包接头',at:data.site.branches[1].at(-1),height:sort.deck,width:11,az:1.18},
+    {label:'分配线末端滑板',at:eq.slide[0].slice(0,2),height:eq.slide[0][2],width:14,az:1.13},
+    {label:'暂存与汇流',at:middle(eq.buffer.left,eq.buffer.right),height:.8,width:32,az:.18}
+  ]:[];
   return {
-    sorting:sort.feeds.map(([a,c],i)=>({label:'供包台 '+(i+1),at:middle(a,c),height:sort.deck})).concat(data.site?[{label:'收货扫码称重',at:data.site.receipt,height:.85}]:[]).concat(data.site?.distribution?[{label:'分流与排队',at:data.site.branches[Math.floor(sort.feeds.length/2)][0],height:sort.deck}]:[]),
+    sorting:sort.feeds.map(([a,c],i)=>({label:'供包台 '+(i+1),at:middle(a,c),height:sort.deck})).concat(data.site?[{label:'收货扫码称重',at:data.site.receipt,height:.85}]:[]).concat(data.site?.distribution?[{label:'分流与排队',at:data.site.branches[Math.floor(sort.feeds.length/2)][0],height:sort.deck}]:[]).concat(details),
     chutes:sort.chutes.map(([a,c],i)=>({label:'滚筒滑槽 '+(i+1),at:middle(a,c),height:(sort.chuteTop+sort.chuteBottom)/2})).concat({
       label:'格口人工码盘',at:middle(sort.chutes[0][1],p.tails[0].map((v,i)=>v+p.offset[i])),height:1.12}),
     pallet:[...p.stackers.map((at,i)=>({label:'拆盘机 '+(i+1),at,height:p.deck})),
@@ -55,7 +64,7 @@ export function targets(data) {
     dock:[...d.levellers.map(item=>({label:item.id+' 调平台',at:item.at,height:.5})),
       ...d.handoffs.map((row,i)=>({label:'整板箱交接 '+(i+1),at:row[1],height:d.deck})),{label:'全部月台',wide:true}],
     tables:data.tables.places.map(({at},i)=>({label:'图示台位 '+String(i+1).padStart(2,'0'),at,height:data.tables.height})).concat({label:'全部台位',wide:true}),
-    overview:[{label:'全站房物流范围',wide:true}],
+    overview:[{label:'全站房物流范围',wide:true},{label:'空托盘原位剖视'}],
   };
 }
 
@@ -113,6 +122,10 @@ export async function openCargo(canvas, onStatus) {
   function extent() {
     const k=activeRegion(),r=refs(data)[k];
     if(k==='overview'){
+      if(mode==='3d' && focus===1){
+        const p=data.pallet,mid=middle(p.turns[0],p.tails[Math.floor(p.tails.length/2)]);
+        return {at:mid.map((v,i)=>v+p.offset[i]),w:distanceX(p.inlets.map(a=>[a]))+8,d:22,y:1.16};
+      }
       if(mode==='3d' && focus<0){
         const global=(p,offset)=>p.map((v,i)=>v+offset[i]);
         const points=[data.site?.receipt || data.sorter.feeds[0][0],
@@ -133,8 +146,8 @@ export async function openCargo(canvas, onStatus) {
       if(key==='pallet')return local(chosen.at,focus>=nav.pallet.length-1?9:6.8,5.4,chosen.height+.16);
       if(key==='chutes')return local(chosen.at,8,8,chosen.height);
       if(key==='sorting'){
-        const span=focus>data.sorter.feeds.length?23:focus===data.sorter.feeds.length?9.5:13;
-        return local(chosen.at,span,focus>data.sorter.feeds.length?15:9,chosen.height+.35);
+        const span=chosen.width || (focus>data.sorter.feeds.length?23:focus===data.sorter.feeds.length?9.5:13);
+        return local(chosen.at,span,chosen.width?span*.64:focus>data.sorter.feeds.length?15:9,chosen.height+.35);
       }
       return local(chosen.at,key==='dock'?14:10,key==='dock'?17:8,chosen.height+.65);
     }
@@ -167,8 +180,15 @@ export async function openCargo(canvas, onStatus) {
       drawings[id].visible=!view3d && onSheet && (id!=='pallet' || k==='pallet');
       lines[id].visible=onSheet && mode==='overlay';
     }
+    const showLower=k==='overview' && view3d;
+    plant.sorting.section(showLower?(focus===1?2:1):0);
+    lines.pallet.visible=showLower || (mode==='overlay' && ['overview','sorting','pallet'].includes(k));
+    lines.pallet.position.y=showLower?data.pallet.deck+.16:0;
+    const lowerInk=lines.pallet.children[0].material;
+    lowerInk.color.set(showLower?'#14776a':'#a94416');lowerInk.linewidth=showLower?1.65:2.6;
+    lowerInk.transparent=showLower;lowerInk.opacity=showLower?.72:1;
     if(drawings.hall)drawings.hall.visible=!view3d && k!=='pallet';
-    hall.group.visible=view3d;hall.overhead.visible=k==='overview' && focus>=0;hall.dockUpper.visible=k!=='dock';
+    hall.group.visible=view3d;hall.overhead.visible=k==='overview' && focus===0;hall.dockUpper.visible=k!=='dock';
     scene.background.set(view3d?'#a9bab9':'#f2f4f1');
     camera=mode==='3d'?perspective:ortho;ctrl.object=camera;ctrl.enableRotate=mode==='3d';
     ctrl.mouseButtons.LEFT=mode==='3d'?T.MOUSE.ROTATE:T.MOUSE.PAN;
@@ -177,8 +197,8 @@ export async function openCargo(canvas, onStatus) {
     ctrl.enableDamping=false;ctrl.update();ctrl.enableDamping=true;
     const ex=extent(),[x,z]=ex.at;resize();
     if(mode==='3d'){
-      const az=key==='overview'?(perspective.aspect<.8?-1.34:-.18):key==='dock'?2.46:key==='tables'?.49:key==='pallet'?-.61:.37;
-      const angle=key==='overview'?.81:key==='dock'?.70:key==='tables'?.62:key==='pallet'?(focus<0?.89:.56):.70;
+      const az=nav[key][focus]?.az ?? (key==='overview'?(focus===1?-.50:perspective.aspect<.8?-1.34:-.18):key==='dock'?2.46:key==='tables'?.49:key==='pallet'?-.61:.37);
+      const angle=key==='overview'?(focus===1?.47:.81):key==='dock'?.70:key==='tables'?.62:key==='pallet'?(focus<0?.89:.56):.70;
       const horizontal=ex.w*Math.abs(Math.cos(az))+ex.d*Math.abs(Math.sin(az));
       const depth=ex.w*Math.abs(Math.sin(az))+ex.d*Math.abs(Math.cos(az));
       const fit=Math.max(horizontal/perspective.aspect,depth*Math.sin(angle));
@@ -213,7 +233,8 @@ export async function openCargo(canvas, onStatus) {
   const tags=new Map();
   const labels={
     dock:[...data.dock.levellers[plant.dockOps.active].at.map((n,i)=>n+offsets.dock[i]),5.0],
-    sorting:[0,0,data.sorter.deck+1.7],
+    sorting:[data.sorter.left*.5,-data.sorter.radius,data.sorter.deck+1.2],
+    pallet:[...data.pallet.tails.at(-1).map((n,i)=>n+offsets.pallet[i]),data.pallet.deck+.18],
     tables:[...data.tables.places.at(-1).at.map((n,i)=>n+offsets.tables[i]),2.4],
     ...(data.site?{meter:[...data.site.receipt,2.1]}:{}),
   };
@@ -228,10 +249,12 @@ export async function openCargo(canvas, onStatus) {
       const anchor=labels[id];if(!anchor)continue;
       tagPoint.set(anchor[0],anchor[2],anchor[1]).project(camera);
       const x=(1+tagPoint.x)*w/2,y=(1-tagPoint.y)*h/2;
-      const width=node.offsetWidth,height=node.offsetHeight,overlap=placed.some(r=>Math.abs(x-r.x)<(width+r.w)/2+4 && Math.abs(y-r.y)<height+9);
-      const hidden=overlap || tagPoint.z>1 || x<width/2 || x>w-width/2 || y<height+7 || y>h;
+      const width=node.offsetWidth,height=node.offsetHeight;
+      const rise=[0,height+8,2*(height+8),3*(height+8)].find(d=>y-d>height+7 &&
+        !placed.some(r=>Math.abs(x-r.x)<(width+r.w)/2+4 && Math.abs(y-d-r.y)<height+7));
+      const hidden=rise===undefined || tagPoint.z>1 || x<width/2 || x>w-width/2 || y>h;
       node.style.visibility=hidden?'hidden':'visible';
-      if(!hidden){placed.push({x,y,w:width});node.style.left=x+'px';node.style.top=y+'px';}
+      if(!hidden){placed.push({x,y:y-rise,w:width});node.style.left=x+'px';node.style.top=(y-rise)+'px';node.style.setProperty('--tag-rise',rise+'px');}
     }
   }
   function render(now){
@@ -242,7 +265,7 @@ export async function openCargo(canvas, onStatus) {
       if(meshes.sorting.visible)plant.sorting.update(time);
       if(meshes.pallet.visible)plant.pallet.update(time);
       if(meshes.sorting.visible)plant.chutePacking.update(time);
-      plant.dockOps.update(time);plant.packing.update(time);hall.meter?.update(time);
+      plant.dockOps.update(time);plant.packing.update(time);hall.receipts.forEach(unit=>unit.update(time));
     }
     ctrl.update();renderer.render(scene,camera);positionTags();frameId=requestAnimationFrame(render);
   }
@@ -250,6 +273,7 @@ export async function openCargo(canvas, onStatus) {
   return {data,plant,hall,renderer,nav,show,tag,packingLabel,missingCartons:cargoModels.filter(m=>m.id.startsWith('box_cardboard_') && !models[m.id]).length,get time(){return time;}, get view(){return key;},get mode(){return mode;},
     setPaused(v){paused=v;},setSpeed(v){speed=v;},seek(t){time=t;},getCamera(){return camera;},getTarget(){return ctrl.target.clone();},
     dispose(){disposed=true;cancelAnimationFrame(frameId);observer.disconnect();ctrl.dispose();
+      plant.sorting.disposeSection();
       const geometries=new Set(),materials=new Set(),textures=new Set();
       scene.traverse(o=>{if(o.geometry)geometries.add(o.geometry);if(o.material)for(const m of [].concat(o.material)){materials.add(m);for(const v of Object.values(m))if(v?.isTexture)textures.add(v);}});
       geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());env.dispose();renderer.dispose();}

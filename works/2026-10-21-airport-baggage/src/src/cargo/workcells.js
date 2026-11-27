@@ -296,9 +296,23 @@ export function createPackingOperations(group,s,assets,nearChute){
   return {active,supply,landing,vehicle,delivery,box,worker,update,cues:{supply:{view:'tables',focus:active,time:.7},build:{view:'tables',focus:active,time:11.1}}};
 }
 
-export function fitReceipt(group,at,assets){
+export function fitReceipt(group,at,assets,extension=0,index=0,dockZ=0){
   const b=batch(group),[x,z]=at,w=.8,h=.8;
-  for(const [a,c] of [[-3.3,-1.0],[-.99,-.81],[-.8,.8],[.81,3.2]])conveyor(b,[x,z+a],[x,z+c],h,h,w);
+  const start=extension?-11.8-extension:-3.3,end=extension?2.4:3.2;
+  const spans=extension?[[-11.8,-4.8],[-4.8,-2.8],[-2.8,-.8],[-.8,.8],[.8,end]]:[[-3.3,-1],[-1,-.8],[-.8,.8],[.8,end]];
+  for(const [a,c] of spans)conveyor(b,[x,z+a],[x,z+c],h,h,w);
+  if(extension){
+    // H01/H02/H03 have a 7 m fixed body. The three nested stages share a belt.
+    const step=extension/3;
+    for(let j=0;j<3;j++){
+      const nose=-11.8-(j+1)*step;
+      conveyor(b,[x,z+nose],[x,z+nose+step],h,h,w,'belt',false);
+      for(const sign of [-1,1])b.box(x+sign*(.55-.04*j),h-.17+.035*j,z+nose+step/2,.061,.14,step,steel);
+    }
+    for(const sign of [-1,1])b.box(x+sign*.58,h-.20,z-8.3,.115,.23,7,side);
+    b.roller([x-.39,h-.034,z+start+.033],[x+.39,h-.034,z+start+.033],.034);
+    if(z+start<dockZ-.35)truck(b,x,0,dockZ-.18,paint[index%paint.length]);
+  }
   scanner(b,x,z-.82,h,w,true);
   for(const sign of [-1,1]){
     b.box(x+sign*.52,h-.15,z,.10,.15,1.6,amber);
@@ -311,8 +325,9 @@ export function fitReceipt(group,at,assets){
   display.position.set(x+.82,1.45,z+.071);group.add(display);
   b.finish();const item=fitted(assets.box_cardboard_a01,.45,.36,.44,true);group.add(item);
   let last;
-  return {item,update(t){
-    const offset=-2.9+mod(t,11.5)*.5;item.position.set(x,h,z+offset);
+  return {item,start,end,at,update(t){
+    const offset=extension?start+.24+mod(t*.5-2.9-start-.24+index*2.7,end-start-.48):-2.9+mod(t,11.5)*.5;
+    item.position.set(x,h,z+offset);
     const state=Math.abs(offset)<.65?'称重中':offset>=-1.2 && offset<-.65?'读码中':'待料';
     if(last===state)return;
     ctx.fillStyle='#183731';ctx.fillRect(0,0,256,104);ctx.fillStyle='#b6e1b3';ctx.textAlign='center';
@@ -334,4 +349,43 @@ export function dressStaging(batch,site){
       for(let k=0;k<n;k++)carton(batch,cx,.15+k*.48,cz,pw-.11,.47,pd-.10,i+k);
     }
   });
+}
+
+// Four accumulation lanes with bidirectional roller transfers at their drawn ends.
+export function parcelBuffer(group,b,site,sorter,assets){
+  const eq=site.distributionEquipment,bank=eq.buffer;
+  const [left]=bank.left,[right]=bank.right,h=.80,centres=[];
+  function transfer(x,z){
+    b.box(x,h-.15,z,1.44,.19,1.16,frame);
+    for(let j=0;j<10;j++){
+      const xx=x+(j-4.5)*.143;
+      b.roller([xx,h-.045,z-.56],[xx,h-.045,z+.56],.045);
+    }
+    for(const off of [-.36,.36])b.box(x+off,h-.012,z,.058,.030,1.12,dark);
+    for(const dx of [-.54,.54])for(const dz of [-.41,.41])b.box(x+dx,.30,z+dz,.075,.60,.075,frame);
+    centres.push([x,z]);
+  }
+  for(const [i,z] of bank.rows.entries()){
+    const end=i===3?bank.returnEnd:right;
+    transfer(left,z);transfer(end,z);
+    const mid=(left+end)/2;
+    conveyor(b,[left+.72,z],[mid-.006,z],h,h,1);
+    conveyor(b,[mid+.006,z],[end-.72,z],h,h,1);
+    for(let j=0;j<3+i%2;j++)carton(b,left+2.1+j*2.2+i*.51,h,z,.48,.33,.39,j+i);
+    if(i){
+      const prev=bank.rows[i-1];
+      conveyor(b,[left,prev+.58],[left,z-.58],h,h,1.36,'roller',false);
+      if(i<3)conveyor(b,[right,prev+.58],[right,z-.58],h,h,1.36,'roller',false);
+    }
+  }
+  // The lower return meets the bank at two transfers, below the raised D02 crossing.
+  const tail=sorter.returns[1].at(-1),z=tail[1];
+  for(const x of [right,bank.returnEnd])transfer(x,z);
+  conveyor(b,[right,bank.rows[2]+.58],[right,z-.58],h,h,1.2);
+  conveyor(b,[bank.returnEnd,bank.rows[3]+.58],[bank.returnEnd,z-.58],h,h,1.36,'roller',false);
+  conveyor(b,tail,[right+.72,z],h,h,1.2);
+  conveyor(b,[right-.72,z],[bank.returnEnd+.72,z],h,h,1);
+  const vehicle=forkTruck(assets);
+  vehicle.position.set(eq.forklift[0],0,eq.forklift[1]);vehicle.rotation.y=-Math.PI/2;group.add(vehicle);
+  return {rows:bank.rows,transfers:centres};
 }

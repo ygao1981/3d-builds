@@ -35,7 +35,8 @@
 
 .cargo-map-tags{position:absolute;inset:0;pointer-events:none}
 .cargo-map-tags button{position:absolute;visibility:hidden;transform:translate(-50%,calc(-100% - 9px));pointer-events:auto;background:#233d42f5;border:1px solid #718780;border-left:3px solid #e6b14e;border-radius:3px;color:#fff;font-size:12px;font-weight:600;letter-spacing:.035em;padding:5px 9px;box-shadow:0 2px 5px #23353624}
-.cargo-map-tags button::after{content:'';position:absolute;left:50%;bottom:-9px;height:8px;border-left:1px solid #233d42}
+.cargo-map-tags button::after{content:'';position:absolute;left:50%;bottom:calc(-9px - var(--tag-rise,0px));height:calc(8px + var(--tag-rise,0px));border-left:1px solid #233d42}
+.cargo-map-tags button[data-tag=pallet]{background:#12685d;border-color:#5d968a;border-left-color:#a4d9c9}
 .cargo-map-tags button:hover,.cargo-map-tags button:focus-visible{background:#0f625c}
 .cargo-film .cargo-map-tags{display:none}
 @media(max-width:640px){.cargo-map-tags button{font-size:10px;padding:3px 5px}.cargo-replay{max-width:98%;left:4px;gap:3px}.cargo-replay span{display:none}.cargo-replay button{padding:5px;font-size:10px}}

@@ -62,12 +62,29 @@ function sorterPlant(spec,scenes,site) {
   const edges=new T.InstancedMesh(unitBox,side,spec.carts);
   cells.castShadow=true;cells.receiveShadow=true;group.add(cells,edges);
   const speed=1.48,induction=buildInduction(b,group,spec,site,speed);
-  for(const [a,c] of spec.chutes) {
+  const chuteSections=[new T.Group(),new T.Group()],chuteSteel=chuteSections.map(batch);
+  group.add(...chuteSections);
+  for(const [i,[a,c]] of spec.chutes.entries()) {
+    const cb=chuteSteel[Math.abs(i-(spec.chutes.length-1)/2)<=2?0:1];
     const knee=1-(spec.chuteFlat??.50)/distance(a,c);
     const mid=[lerp(a[0],c[0],knee),lerp(a[1],c[1],knee)];
-    conveyor(b,a,mid,spec.chuteTop,spec.chuteBottom,spec.chuteWidth,'roller');
-    conveyor(b,mid,c,spec.chuteBottom,spec.chuteBottom,spec.chuteWidth,'roller');
-    b.box(c[0],spec.chuteBottom+.054,c[1]+.021,spec.chuteWidth,.108,.04,side);
+    conveyor(cb,a,mid,spec.chuteTop,spec.chuteBottom,spec.chuteWidth,'roller');
+    conveyor(cb,mid,c,spec.chuteBottom,spec.chuteBottom,spec.chuteWidth,'roller');
+    cb.box(c[0],spec.chuteBottom+.054,c[1]+.021,spec.chuteWidth,.108,.04,side);
+  }
+  chuteSteel.forEach(s=>s.finish());
+  const translucent=new Map(),chuteParts=chuteSections.map(g=>g.children.map(mesh=>{
+    const solid=mesh.material;
+    if(!translucent.has(solid)){
+      const ghost=solid.clone();ghost.transparent=true;ghost.opacity=.16;ghost.depthWrite=false;
+      translucent.set(solid,ghost);
+    }
+    return {mesh,solid,ghost:translucent.get(solid)};
+  }));
+  function section(level){
+    chuteParts.forEach((parts,i)=>parts.forEach(({mesh,solid,ghost})=>{
+      mesh.material=level>i?ghost:solid;mesh.castShadow=level<=i;
+    }));
   }
   for(const path of spec.returns) for(let i=1;i<path.length;i++){
     const a=path[i-1],c=path[i];conveyor(b,a,c,a[2],c[2],1.2,'belt',distance(a,c)>.8 || i%8===0);
@@ -83,6 +100,11 @@ function sorterPlant(spec,scenes,site) {
     return {box,slot:Math.floor(i*spec.carts/18),inlet:i%spec.feeds.length,outlet:i%spec.chutes.length};
   });
   const tmp=new T.Object3D(),phase=.55;
+  const transit=induction.through.map((route,i)=>{
+    const length=route.slice(1).reduce((sum,p,j)=>sum+distance(route[j],p),0);
+    const box=cartons[i%cartons.length].clone(true);group.add(box);
+    return {route,length,box,offset:i?11:3};
+  });
   const cycle=loop.length/speed, chosen=loads.find(l=>l.outlet===Math.floor(spec.chutes.length/2)) || loads[0];
   const [,join]=spec.feeds[chosen.inlet],head=spec.chutes[chosen.outlet][0];
   const when=s=>mod((s-chosen.slot*loop.length/spec.carts)/speed,cycle);
@@ -91,6 +113,15 @@ function sorterPlant(spec,scenes,site) {
     unload:{view:'chutes',focus:chosen.outlet,time:mod(when(loop.straight+loop.arc+head[0]-spec.left-speed*phase)-.8,cycle)},
   };
   function update(t) {
+    for(const {route,length,box,offset} of transit){
+      const half=box.userData.size[0]/2,u=mod(t*.78+offset,length+5);
+      box.visible=u<length+2;
+      const s=Math.min(length-half,Math.max(half,u));
+      const [x,z,yaw,y]=pathAt(route,s/length);
+      const before=pathAt(route,(s-half)/length),after=pathAt(route,(s+half)/length);
+      const tilt=Math.atan2(after[3]-before[3],2*half);
+      box.rotation.set(0,yaw,tilt,'YXZ');box.position.set(x,Math.max(y,(before[3]+after[3])/2),z);
+    }
     for(let i=0;i<spec.carts;i++){
       const [x,z,dx,dz]=loop.at(t*speed+i*loop.length/spec.carts);
       tmp.position.set(x,deck-.07,z);tmp.rotation.set(0,-Math.atan2(dz,dx),0);tmp.scale.set(spec.cartLength,.14,width);
@@ -128,7 +159,8 @@ function sorterPlant(spec,scenes,site) {
     const release=loop.straight+loop.arc+spec.chutes[outlet][0][0]-spec.left-speed*phase;
     return {box,outlet,period:cycle,at:mod((release-slot*loop.length/spec.carts)/speed+phase+4.8,cycle)};
   });
-  update(0);return {group,update,loop,loads,cues,induction,arrivals};
+  function disposeSection(){section(0);translucent.forEach(m=>m.dispose());}
+  update(0);return {group,update,loop,loads,cues,induction,arrivals,transit,section,chuteSections,disposeSection};
 }
 
 function flatPlasticPallet(){

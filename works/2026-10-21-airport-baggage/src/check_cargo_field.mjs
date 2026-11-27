@@ -101,6 +101,105 @@ try{
   assert(poses.induction.every(path=>path.allSeen && path.trunkError<.001 && path.cartError<.001 && path.maxGap<.08 &&
     path.exitSpeed>path.entrySpeed && Math.abs(path.tangent-1.48)<.001));
   assert(poses.receipt && poses.markedStaging>0 && poses.hallPosts>0);
+  // Test the physical top triangles. A continuous animation alone can mask a missing belt.
+  report.junctions=await page.evaluate(()=>{
+    const c=window.__cargo,s=c.plant.sorting,i=s.induction,e=c.data.site.distributionEquipment;
+    const triangles=[];
+    s.group.updateMatrixWorld(true);
+    s.group.traverse(m=>{
+      if(m.name!=='输送承载面')return;
+      const a=m.geometry.attributes.position;
+      for(let n=0;n<a.count;n+=3){
+        const pts=[0,1,2].map(k=>m.position.clone().fromBufferAttribute(a,n+k).applyMatrix4(m.matrixWorld));
+        const [p,q,r]=pts,det=(q.x-p.x)*(r.z-p.z)-(q.z-p.z)*(r.x-p.x);
+        if(det>=-.0000001)continue;
+        triangles.push({id:m.id,p,q,r,det,left:Math.min(p.x,q.x,r.x),right:Math.max(p.x,q.x,r.x),
+          front:Math.min(p.z,q.z,r.z),rear:Math.max(p.z,q.z,r.z)});
+      }
+    });
+    function heights(x,z,h,atX=x,atZ=z){
+      const found=new Map(),eps=.000002;
+      for(const t of triangles){
+        if(x<t.left-eps || x>t.right+eps || z<t.front-eps || z>t.rear+eps)continue;
+        const {p,q,r,det}=t;
+        const u=((x-p.x)*(r.z-p.z)-(z-p.z)*(r.x-p.x))/det;
+        const v=((q.x-p.x)*(z-p.z)-(q.z-p.z)*(x-p.x))/det;
+        if(Math.min(u,v,1-u-v)<-eps)continue;
+        const y=p.y+u*(q.y-p.y)+v*(r.y-p.y);
+        if(Math.abs(y-h)>=.038)continue;
+        const du=((atX-x)*(r.z-p.z)-(atZ-z)*(r.x-p.x))/det;
+        const dv=((q.x-p.x)*(atZ-z)-(q.z-p.z)*(atX-x))/det;
+        found.set(t.id,y+du*(q.y-p.y)+dv*(r.y-p.y));
+      }
+      return found;
+    }
+    function cut(mid,dir,face,height){
+      const normal=[-dir[1],dir[0]],slope=(normal[0]*face[0]+normal[1]*face[1])/(dir[0]*face[0]+dir[1]*face[1]);
+      let tested=0,gaps=0,overlaps=0,paired=0,maxStepMm=0;
+      for(const off of [-.57,-.38,-.19,0,.19,.38,.57])for(let k=-12;k<=12;k++){
+        const step=k*.012-off*slope;
+        const x=mid[0]+off*normal[0]+step*dir[0],z=mid[1]+off*normal[1]+step*dir[1];
+        const h=typeof height==='function'?height(x,z):height;
+        const count=heights(x,z,h).size;
+        tested++;if(!count)gaps++;if(count>1 && k!==0)overlaps++;
+        if(k===0){
+          // Project the two actual mating top triangles back onto their common face.
+          const a=heights(x-dir[0]*.002,z-dir[1]*.002,h,x,z);
+          const b=heights(x+dir[0]*.002,z+dir[1]*.002,h,x,z);
+          if(a.size===1 && b.size===1){
+            paired++;maxStepMm=Math.max(maxStepMm,Math.abs([...a.values()][0]-[...b.values()][0])*1000);
+          }
+        }
+      }
+      return {tested,gaps,overlaps,paired,maxStepMm};
+    }
+    const unit=(a,b)=>{const dx=b[0]-a[0],dz=b[1]-a[1],l=Math.hypot(dx,dz);return [dx/l,dz/l];};
+    const seams=i.branches.map(b=>({
+      distributor:cut(b.port.mid,unit(b.path[0],b.path[1]),[0,1],3.55),
+      induction:cut(b.seam,b.travel,b.normal,3.55)
+    }));
+    const incoming=[...e.sources,e.merge].map((path,j)=>{
+      const a=path.at(-2),b=path.at(-1),dir=unit(a,b),bank=j===e.sources.length?1:-1;
+      const run=bank*.6/dir[1],mid=[b[0]+dir[0]*run,b[1]+bank*.6];
+      return cut(mid,dir,[0,1],b[2]);
+    });
+    const [a,b]=e.slide;
+    const slide=cut(a,[1,0],[1,0],x=>a[2]+(b[2]-a[2])*Math.max(0,(x-a[0])/(b[0]-a[0])));
+    const traffic=s.transit.map(item=>{
+      let samples=0,unsupported=0;
+      for(let f=.01;f<1;f+=.004){
+        s.update((item.length*f-item.offset)/.78);
+        const {x,y,z}=item.box.position;
+        samples++;if(!heights(x,z,y).size)unsupported++;
+      }
+      return {samples,unsupported};
+    });
+    const receipts=c.hall.receipts.map(unit=>{
+      unit.update(2);const first=unit.item.position.clone();unit.update(3);
+      return {x:unit.at[0],length:unit.end-unit.start,height:first.y,travel:first.distanceTo(unit.item.position)};
+    });
+    return {seams,incoming,slide,traffic,receipts,bufferRows:c.hall.buffer.rows.length,bufferTransfers:c.hall.buffer.transfers.length};
+  });
+  const j=report.junctions,allCuts=[...j.seams.flatMap(v=>[v.distributor,v.induction]),...j.incoming,j.slide];
+  assert.equal(allCuts.length,11);
+  assert(allCuts.every(s=>s.gaps===0 && s.overlaps===0),JSON.stringify(j));
+  assert(allCuts.every(s=>s.paired===7 && s.maxStepMm<1),JSON.stringify(allCuts));
+  assert(j.traffic.length===2 && j.traffic.every(p=>p.unsupported===0),JSON.stringify(j.traffic));
+  assert(j.bufferRows===4 && j.bufferTransfers===10);
+  assert.equal(new Set(j.receipts.map(unit=>unit.x)).size,3);
+  assert(j.receipts.every(unit=>unit.length>=14.2 && unit.height===.8 && Math.abs(unit.travel-.5)<.0001));
+  await page.locator('[data-area="overview"]').click();
+  await page.getByRole('button',{name:'下层空托盘',exact:true}).click();await frame();
+  report.lowerCut=await page.evaluate(()=>{
+    const c=window.__cargo;
+    return {view:c.view,lowerVisible:c.plant.pallet.group.visible,upperVisible:c.plant.sorting.group.visible,
+      inPlace:c.plant.pallet.group.position.toArray(),drawingOrigin:[c.data.pallet.offset[0],0,c.data.pallet.offset[1]],
+      dimmed:c.plant.sorting.chuteSections.every(g=>g.children.every(m=>m.material.opacity<.3))};
+  });
+  assert.equal(report.lowerCut.view,'overview');assert(report.lowerCut.lowerVisible && report.lowerCut.upperVisible && report.lowerCut.dimmed);
+  assert.deepEqual(report.lowerCut.inPlace,report.lowerCut.drawingOrigin);
+  await shot('01c-in-place-pallet');
+  await page.getByRole('combobox',{name:'总览范围'}).selectOption('-1');
   await page.locator('.cargo-map-tags').getByRole('button',{name:'收货计量',exact:true}).click();
   assert.equal(await page.getByRole('combobox',{name:'设备定位'}).locator('option:checked').innerText(),'收货扫码称重');
   assert.match(await page.locator('.cargo-facts').innerText(),/PR0020-F1004/);

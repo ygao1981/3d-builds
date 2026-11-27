@@ -16,11 +16,19 @@ const modes=[['3d','三维演示'],['overlay','图纸叠合'],['paper','工艺�
 const replayLabels={feed:'斜向供包',unload:'滑槽卸载',stack:'格口人工码盘',release:'底部拆盘',turn:'托盘转向',transfer:'顶升移载',chain:'横向链条输送',meter:'收货扫码称重',distribute:'分流排队',truck:'货车卸货',raise:'交接台升降',handoff:'整板交接',build:'纸箱组板',supply:'叉车送料'};
 const capture=new URLSearchParams(location.search).has('capture');
 
-function describe(key,d){
+function describe(key,d,selection){
+  const eq=d.site?.distributionEquipment;
+  if(key==='overview' && selection==='空托盘原位剖视')return {...describe('pallet',d),note:'环线和滑槽淡化后，可在主站房原位看到拆盘机、旋转台、横向输送链和九条移载支路。'};
+  if(key==='sorting' && selection==='收货扫码称重')return {sheet:d.site.reference,parts:eq?.receipts?'PR0020-F1004 至 F1007':d.site.receiptParts||'PR0020-F1004',note:'收货线将散件送过三面读码与体积测量装置，再由称重皮带计量。',metrics:[['条码识读','三面'],['称重皮带','1.60 × 0.80 m'],['输送面高度','0.80 m']]};
+  if(key==='sorting' && eq){
+    if(selection==='排队与供包接头')return {sheet:d.sorter.reference,parts:'PR0020-F1009 至 F1011、F1013',note:'包裹从分配主线转入排队皮带。排队带末端斜切，整幅承载面贴到五段供包台侧边，包裹在接缝上转向。',metrics:[['供包支路',d.sorter.feeds.length+' 路'],['排队皮带宽','1.20 m'],['排队带高度','3.55 m']]};
+    if(selection==='分配线末端滑板')return {sheet:d.sorter.reference,parts:'PR0020-F1009',note:'分配线的最后一段接 D01-022 小滑板。旁边较低的平行带承接来件，两条带在另一端折返。',metrics:[['设备编号','D01-022'],['滑板长 × 宽','0.90 × 1.20 m'],['入口 / 出口','3.55 / 3.08 m']]};
+    if(selection==='暂存与汇流')return {sheet:d.sorter.reference,parts:'PR0020-F1016 至 F1018',note:'三道暂存带与一道回送带通过端部移载台交接。旁侧汇流线爬升后，从侧面把包裹送上分配主线。',metrics:[['暂存 / 回送','3 道 / 1 道'],['双向移载台','10 台'],['暂存带高度','0.80 m']]};
+  }
   if(key==='pallet')return {sheet:d.pallet.reference,parts:d.pallet.partsSheet,note:'平面塑料托盘拆垛后转向。九台链条输送机分两组横向输送，各支路在 0.80 米处用顶升滚筒接盘。',metrics:[['拆盘机 / 旋转台','各 2 台'],['横向链条输送机',d.pallet.transfers.length+' 台'],['托盘尺寸','1.20 × 1.00 m']]};
   if(key==='dock')return {sheet:d.dock.reference,parts:d.dock.partsSheet,note:'叉车经调平台卸货。整板交接台升到 0.508 米，与固定辊道对平后按 18 米/分交板。',metrics:[['汽车调平台',d.dock.levellers.length+' 台'],['升降交接台',d.dock.handoffs.length+' 台'],['固定辊道',d.dock.handoffs.reduce((n,s)=>n+s.length-2,0)+' 台']]};
   if(key==='tables')return {sheet:d.tables.reference,parts:d.tables.partsSheet,note:'叉车把托货送到打板台旁，作业员逐箱组板，成板后系网。台位按图定位，货物与人员为作业示意。',metrics:[['图示台位',d.tables.places.length+' 处'],['台面',d.tables.size.join(' × ')+' m'],['台高',d.tables.height+' m']]};
-  if(key==='overview')return {sheet:d.sorter.reference,parts:d.dock.partsSheet+'、'+d.tables.partsSheet,note:'点场内标签进入工位，或按散件、板货流程观看交接。地面斜线表示其他工艺占区。',metrics:[['装卸月台',d.dock.levellers.length+' 处'],['打板台位',d.tables.places.length+' 处'],['布局依据','主站房工艺平面图']]};
+  if(key==='overview')return {sheet:d.sorter.reference,parts:d.dock.partsSheet+'、'+d.tables.partsSheet,note:'青绿色线标出环线下方的空托盘路径。点「下层空托盘」在原位看拆盘、转向和九条支路，再用总览范围返回全场。',metrics:[['装卸月台',d.dock.levellers.length+' 处'],['打板台位',d.tables.places.length+' 处'],['空托盘支路',d.pallet.tails.length+' 路']]};
   if(key==='chutes')return {sheet:d.sorter.reference,parts:d.sorter.partsSheet,note:'九道滑槽末端带平段。环内第二支路转弯标高 1.50 米。第一支路 S01-103 的平面标长与设备表有差异，演示按平面定位，标高衔接待确认。',metrics:[['滚筒滑槽',d.sorter.chutes.length+' 道'],['入口高度',d.sorter.chuteTop.toFixed(2)+' m'],['末端高度',d.sorter.chuteBottom.toFixed(2)+' m']]};
   return {sheet:d.sorter.reference,parts:d.sorter.partsSheet,note:'收货线完成扫码、测体积和称重。三路五段供包台斜向交件，环线上另设一台五面读码器。',metrics:[['环线小车',d.sorter.carts+' 台'],['五段供包台',d.sorter.feeds.length+' 路'],['输送面高度',d.sorter.deck.toFixed(2)+' m']]};
 }
@@ -50,7 +58,9 @@ export default function CargoApp(){
     if(capture)setFilmAction(replayLabels[id]);
   }
   const isMeter=data?.site && view==='sorting' && focus===data.sorter.feeds.length;
-  const active=views.find(([id])=>id===view),detail=isMeter?{sheet:data.site.reference,parts:data.site.receiptParts||'PR0020-F1001',note:'纸箱在收货线上经三面读码、体积测量与称重。五段供包台位于后续分拣工序，环线上另设五面读码器。',metrics:[['条码识读','三面'],['称重皮带','1.60 × 0.80 m'],['输送面高度','0.80 m']]}:data && describe(view,data),devices=engine.current?.nav[view] || [];
+  const active=views.find(([id])=>id===view),devices=engine.current?.nav[view]||[];
+  const selection=mode==='3d'?devices[focus]?.label:undefined;
+  const detail=data && describe(view,data,selection);
   return <div className={'cargo-shell'+(capture?' cargo-film':'')}>
     <header className="cargo-header">
       <span className="cargo-brand"><Icon name="plane" size={24}/></span>
@@ -65,12 +75,12 @@ export default function CargoApp(){
           <a href={manifest.source.datasetUrl+'/tree/'+manifest.source.revision} target="_blank" rel="noreferrer">资产版本</a> · <a href={manifest.source.licenseUrl} target="_blank" rel="noreferrer">CC BY 4.0</a></details></section>}
     </aside>
     <main className="cargo-main"><canvas ref={canvas} aria-label="货站物流设备三维视窗"/>
-      {detail && <div className="cargo-caption"><span>{detail.sheet.sheet}　·　1∶{detail.sheet.scale}</span><h2>{isMeter?'收货扫码称重':view==='overview' && mode==='3d' && focus<0?'主站房作业联动':active[1]}</h2></div>}
+      {detail && <div className="cargo-caption"><span>{detail.sheet.sheet}　·　1∶{detail.sheet.scale}</span><h2>{selection || (view==='overview' && mode==='3d'?'主站房作业联动':active[1])}</h2></div>}
       <div className="cargo-projections" role="group" aria-label="查看方式">{modes.map(([id,name])=><button key={id} type="button" data-projection={id} aria-pressed={mode===id} onClick={()=>show(view,id,focus)} disabled={!data}>{name}</button>)}</div>
       {data && view==='overview' && mode==='3d' && <div className="cargo-map-tags">
-        {[['dock','装卸交接','dock',-1],['sorting','分拣与空托盘','sorting',-1],['tables','组板作业','tables',engine.current.packingLabel],
+        {[['pallet','下层空托盘','overview',1],['dock','装卸交接','dock',-1],['sorting','自动分拣环线','sorting',-1],['tables','组板作业','tables',engine.current.packingLabel],
           ...(data.site?[['meter','收货计量','sorting',data.sorter.feeds.length]]:[])].map(([id,label,area,target])=>
-          <button key={id} type="button" ref={el=>engine.current?.tag(id,el)} onClick={()=>show(area,'3d',target)}>{label}</button>)}</div>}
+          <button key={id} type="button" data-tag={id} ref={el=>engine.current?.tag(id,el)} onClick={()=>show(area,'3d',target)}>{label}</button>)}</div>}
       {mode==='overlay' && <div className="cargo-legend">
         {view!=='pallet' && <><i/>设备中心线及轮廓</>}
         {['sorting','chutes','pallet','overview'].includes(view) && <><i className="cargo-lower"/>空托盘线</>}
