@@ -141,6 +141,32 @@ export async function openCargo(canvas, onStatus) {
   let page='overview', key=page, layer='both', mode='3d', focus=-1;
   let camera=perspective, time=21, paused=false, speed=1, disposed=false, last, frameId;
   const nav=targets(data);
+  const inOverview=()=>page==='overview' && mode==='3d';
+  const keys=new Set(),step=new T.Vector3(),eyeFloor=.25;
+  let overviewPose=null,overviewMoved=false,gesture=false;
+  ctrl.addEventListener('start',()=>{gesture=inOverview();});
+  ctrl.addEventListener('change',()=>{if(gesture)overviewMoved=true;});
+  ctrl.addEventListener('end',()=>{gesture=false;});
+  function keyDown(event){
+    if(!inOverview() || event.ctrlKey || event.altKey || event.metaKey || !['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE'].includes(event.code))return;
+    event.preventDefault();keys.add(event.code);
+  }
+  function keyUp(event){keys.delete(event.code);}
+  function clearKeys(){keys.clear();}
+  canvas.addEventListener('keydown',keyDown);canvas.addEventListener('keyup',keyUp);
+  canvas.addEventListener('blur',clearKeys);window.addEventListener('blur',clearKeys);
+  function moveOverview(dt){
+    if(!keys.size || !dt)return;
+    const forward=keys.has('KeyW')-keys.has('KeyS'),right=keys.has('KeyD')-keys.has('KeyA');
+    const up=keys.has('KeyE')-keys.has('KeyQ'),yaw=ctrl.getAzimuthalAngle();
+    step.set(right*Math.cos(yaw)-forward*Math.sin(yaw),up,-right*Math.sin(yaw)-forward*Math.cos(yaw));
+    step.normalize().multiplyScalar(dt*T.MathUtils.clamp(ctrl.getDistance()*.65,3,80));
+    step.y=Math.max(step.y,eyeFloor-perspective.position.y);
+    if(step.lengthSq()){
+      perspective.position.add(step);ctrl.target.add(step);
+      ctrl.target.y=Math.max(eyeFloor,ctrl.target.y);overviewMoved=true;
+    }
+  }
   function activeRegion() {return key==='chutes'?'sorting':key;}
   function extent() {
     const k=activeRegion(),r=refs(data)[k];
@@ -199,7 +225,19 @@ export async function openCargo(canvas, onStatus) {
     const a=extent(), half=Math.max(a.d/2,a.w/2/(w/h))*1.07;
     ortho.left=-half*w/h;ortho.right=-ortho.left;ortho.top=half;ortho.bottom=-half;ortho.updateProjectionMatrix();
   }
-  function show(view=page,projection=mode,target=-1,selectedLayer='both') {
+  function show(view=page,projection=mode,target,selectedLayer='both') {
+    const panorama=view==='overview' && projection==='3d';
+    if(inOverview() && overviewMoved){
+      overviewPose={focus,eye:perspective.position.clone(),target:ctrl.target.clone()};
+    }
+    const resume=panorama && target===undefined?overviewPose:null;
+    if(target===undefined){
+      const fromDrawing=page==='overview' && mode!=='3d';
+      const homeFocus=data.site?.floorOperations?0:-1;
+      target=panorama?(resume?.focus ?? (fromDrawing?focus:homeFocus)):-1;
+    }
+    if(panorama && !resume)overviewPose=null;
+    gesture=false;overviewMoved=!!resume;clearKeys();
     const subject=equipmentView(view,selectedLayer);
     const switchingLayer=view==='sorting' && view===page && selectedLayer!==layer && projection===mode && target===focus;
     const keepPose=switchingLayer && subject===key;
@@ -226,12 +264,14 @@ export async function openCargo(canvas, onStatus) {
     plant.chutePacking.group.visible=meshes.sorting.visible && meshes.pallet.visible;
     if(hall.operations)hall.operations.lettering.visible=k==='overview' && (focus<1 || focus===4);
     scene.background.set(view3d?'#a9bab9':'#f2f4f1');
-    if(keepPose)return;
+    if(keepPose)return focus;
     camera=mode==='3d'?perspective:ortho;ctrl.object=camera;ctrl.enableRotate=mode==='3d';
     ctrl.mouseButtons.LEFT=mode==='3d'?T.MOUSE.ROTATE:T.MOUSE.PAN;
     ctrl.touches.ONE=mode==='3d'?T.TOUCH.ROTATE:T.TOUCH.PAN;
     // Flush damping from the previous orbit before installing the registered view.
     ctrl.enableDamping=false;ctrl.update();ctrl.enableDamping=true;
+    ctrl.screenSpacePanning=!panorama;ctrl.zoomToCursor=panorama;
+    ctrl.minDistance=panorama?.75:2;ctrl.maxPolarAngle=panorama?Math.PI:Math.PI*.484;
     const ex=extent(),[x,z]=ex.at;resize();
     if(mode==='3d'){
       const fullFloor=key==='overview' && focus===0 && !!hall.operations;
@@ -253,23 +293,25 @@ export async function openCargo(canvas, onStatus) {
           distance=Math.max(distance,toward+Math.max(Math.abs(across)/(tangent*perspective.aspect*(fullFloor?.96:.92)),Math.abs(elevation)/(tangent*(fullFloor?.91:.82))));
         }
       }
-      ctrl.maxDistance=fullFloor?Math.max(420,distance*1.15):420;
-      camera.near=Math.max(.045,distance/135);camera.far=distance+450;camera.updateProjectionMatrix();
+      ctrl.maxDistance=panorama?Math.max(420,distance*1.15,resume?resume.eye.distanceTo(resume.target):0):420;
+      camera.near=Math.max(.045,distance/135);camera.far=panorama?ctrl.maxDistance+450:distance+450;camera.updateProjectionMatrix();
       camera.up.set(0,1,0);camera.position.set(x+Math.sin(az)*distance*Math.cos(angle),ex.y+distance*Math.sin(angle),z+Math.cos(az)*distance*Math.cos(angle));
       ctrl.target.set(x,ex.y,z);
+      if(resume){camera.position.copy(resume.eye);ctrl.target.copy(resume.target);}
     } else {
       camera.up.set(0,0,-1);camera.zoom=1;camera.position.set(x,220,z);ctrl.target.set(x,0,z);camera.updateProjectionMatrix();
     }
-    camera.lookAt(ctrl.target);ctrl.update();sun.target.position.copy(ctrl.target);
+    camera.lookAt(ctrl.target);ctrl.update();sun.target.position.set(x,view3d?ex.y:0,z);
     const shadowSize=k==='overview'?Math.max(ex.w,ex.d)*.57:Math.max(18,Math.min(54,ex.w));
     Object.assign(sun.shadow.camera,{left:-shadowSize,right:shadowSize,top:shadowSize,bottom:-shadowSize,far:shadowSize*5});
     sun.shadow.camera.updateProjectionMatrix();sun.position.set(x-shadowSize*.72,shadowSize*1.52,z+shadowSize*.84);
+    return focus;
   }
-  let previousAspect=0;
   const observer=new ResizeObserver(()=>{
-    const rect=canvas.getBoundingClientRect(),ratio=rect.width/rect.height;
-    if(previousAspect && Math.abs(ratio/previousAspect-1)>.15)show(page,mode,focus,layer);else resize();
-    previousAspect=ratio;
+    const rect=canvas.getBoundingClientRect();if(!rect.width || !rect.height)return;
+    const change=Math.abs(rect.width/rect.height/perspective.aspect-1);
+    const refit=inOverview()?(!overviewMoved && change>.0001):change>.15;
+    if(refit)show(page,mode,focus,layer);else resize();
   });observer.observe(canvas);
   const tags=new Map();
   const labels={
@@ -295,14 +337,15 @@ export async function openCargo(canvas, onStatus) {
       const width=node.offsetWidth,height=node.offsetHeight;
       const rise=[0,height+8,2*(height+8),3*(height+8)].find(d=>y-d>height+7 &&
         !placed.some(r=>Math.abs(x-r.x)<(width+r.w)/2+4 && Math.abs(y-d-r.y)<height+7));
-      const hidden=rise===undefined || tagPoint.z>1 || x<width/2 || x>w-width/2 || y>h;
+      const hidden=rise===undefined || Math.abs(tagPoint.z)>1 || x<width/2 || x>w-width/2 || y>h;
       node.style.visibility=hidden?'hidden':'visible';
       if(!hidden){placed.push({x,y:y-rise,w:width});node.style.left=x+'px';node.style.top=(y-rise)+'px';node.style.setProperty('--tag-rise',rise+'px');}
     }
   }
   function render(now){
     if(disposed)return;
-    if(!paused && last!==undefined)time+=Math.min((now-last)/1000,.12)*speed;
+    const dt=last===undefined?0:Math.min((now-last)/1000,.12);
+    if(!paused)time+=dt*speed;
     last=now;
     if(mode==='3d'){
       if(meshes.sorting.visible)plant.sorting.update(time);
@@ -311,7 +354,19 @@ export async function openCargo(canvas, onStatus) {
       plant.dockOps.update(time);plant.packing.update(time);hall.receipts.forEach(unit=>unit.update(time));
       hall.additionalReceipts.forEach(unit=>unit.update(time));
     }
+    if(inOverview()){
+      moveOverview(dt);
+      // Allow looking up at equipment while keeping the eye above the floor.
+      const radius=Math.max(ctrl.getDistance(),ctrl.minDistance);
+      ctrl.maxPolarAngle=Math.acos(T.MathUtils.clamp((eyeFloor-ctrl.target.y)/radius,-1,1));
+    }
     ctrl.update();
+    if(inOverview()){
+      if(perspective.position.y<eyeFloor){perspective.position.y=eyeFloor;perspective.lookAt(ctrl.target);}
+      // Resolve the closely spaced floor markings at hall scale and equipment at eye level.
+      const near=Math.max(.045,Math.min(ctrl.getDistance()/135,perspective.position.y/30));
+      if(Math.abs(near-perspective.near)>near*.015){perspective.near=near;perspective.updateProjectionMatrix();}
+    }
     if(mode==='3d' && hall.operations?.lettering.visible)
       hall.operations.orientLabels(camera,ctrl.getAzimuthalAngle(),Math.cos(ctrl.getPolarAngle()),canvas.clientHeight);
     renderer.render(scene,camera);positionTags();frameId=requestAnimationFrame(render);
@@ -320,6 +375,8 @@ export async function openCargo(canvas, onStatus) {
   return {data,plant,hall,renderer,nav,show,tag,packingLabel,missingCartons:cargoModels.filter(m=>m.id.startsWith('box_cardboard_') && !models[m.id]).length,get time(){return time;}, get view(){return page;},get mode(){return mode;},
     setPaused(v){paused=v;},setSpeed(v){speed=v;},seek(t){time=t;},getCamera(){return camera;},getTarget(){return ctrl.target.clone();},
     dispose(){disposed=true;cancelAnimationFrame(frameId);observer.disconnect();ctrl.dispose();
+      canvas.removeEventListener('keydown',keyDown);canvas.removeEventListener('keyup',keyUp);
+      canvas.removeEventListener('blur',clearKeys);window.removeEventListener('blur',clearKeys);
       plant.sorting.disposeSection();
       const geometries=new Set(),materials=new Set(),textures=new Set();
       scene.traverse(o=>{if(o.geometry)geometries.add(o.geometry);if(o.material)for(const m of [].concat(o.material)){materials.add(m);for(const v of Object.values(m))if(v?.isTexture)textures.add(v);}});

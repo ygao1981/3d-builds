@@ -72,9 +72,10 @@ export default function CargoApp(){
     return ()=>{active=false;scene?.dispose();if(window.__cargo===scene)delete window.__cargo;};
   },[]);
   const subject=equipmentView(view,layer);
-  function show(v=view,m=mode,i=(v==='overview' && m==='3d' && engine.current?.hall.operations?0:-1),nextLayer=v==='sorting' && v===view?layer:'both'){
-    engine.current?.show(v,m,i,nextLayer);
-    setView(v);setMode(m);setFocus(i);setLayer(nextLayer);if(capture)setFilmAction('');
+  const panorama=view==='overview' && mode==='3d';
+  function show(v=view,m=mode,i,nextLayer=v==='sorting' && v===view?layer:'both'){
+    const selected=engine.current?.show(v,m,i,nextLayer) ?? -1;
+    setView(v);setMode(m);setFocus(selected);setLayer(nextLayer);if(capture)setFilmAction('');
   }
   function selectLayer(next){
     if(next!==layer)show(view,mode,equipmentView(view,next)===subject?focus:-1,next);
@@ -97,7 +98,7 @@ export default function CargoApp(){
     reading=`交叉带输送面高 ${data.sorter.deck.toFixed(2)} 米。环线下方的空托盘线向滑槽末端供盘，切换设备层可查看交接位置。`;
   if(data && view==='sorting' && layer==='lower' && Number.isFinite(data.pallet.chainDeck))
     reading=`拆盘后，托盘经旋转台进入 ${data.pallet.chainDeck.toFixed(2)} 米高的横向链条线，再由 ${data.pallet.deck.toFixed(2)} 米高的滚筒支路送到滑槽卸货侧。`;
-  return <div className={'cargo-shell'+(capture?' cargo-film':'')}>
+  return <div className={'cargo-shell'+(capture?' cargo-film':panorama?' cargo-overview':'')}>
     <header className="cargo-header">
       <span className="cargo-brand"><Icon name="plane" size={24}/></span>
       <div><h1>{data?.title || '机场货站'}<span>货站工艺演示</span></h1><p>{data?.subtitle || '工艺布局'}</p></div>
@@ -110,14 +111,20 @@ export default function CargoApp(){
         <details><summary>模型来源</summary><p>叉车、纸箱、货车内的木托盘和入口滚筒使用 NVIDIA SimReady 资产，由 CodePawl 转换。空托盘线采用设备表 N04 的平面塑料托盘。货物摆放、作业节拍及设备内部构造为演示设定。</p>
           <a href={manifest.source.datasetUrl+'/tree/'+manifest.source.revision} target="_blank" rel="noreferrer">资产版本</a> · <a href={manifest.source.licenseUrl} target="_blank" rel="noreferrer">CC BY 4.0</a></details></section>}
     </aside>
-    <main className="cargo-main"><canvas ref={canvas} aria-label="货站物流设备三维视窗"/>
+    <main className="cargo-main"><canvas ref={canvas} tabIndex={data && panorama?0:-1} aria-label={panorama?'主站房全景自由视角':'货站物流设备三维视窗'}/>
       {detail && <div className="cargo-caption"><span>{detail.sheet.sheet}　·　1∶{detail.sheet.scale}</span><h2>{selection || (view==='overview' && mode==='3d'?'主站房作业联动':active[1])}</h2>
         {data?.site?.floorOperations && view==='overview' && mode==='3d' && focus<1 &&
           <small className="cargo-floor-key"><i/>理货与待运 <b/>仅示作业占地</small>}
+        {panorama && <details className="cargo-camera-help"><summary>自由视角操作</summary>
+          <p>左键拖动旋转，右键拖动平移，滚轮朝指针位置缩放。</p>
+          <p>点一下场景，用 W / S 前后移动，A / D 左右移动，Q 降低，E 升高。</p>
+          <p>触屏可单指旋转，双指平移或捏合缩放。</p>
+        </details>}
         {view==='sorting' && <div className="cargo-layers" role="group" aria-label="设备分层">{layers.map(([id,label])=>
           <button key={id} type="button" data-layer={id} aria-pressed={layer===id} onClick={()=>selectLayer(id)}>{label}</button>)}</div>}
       </div>}
-      <div className="cargo-projections" role="group" aria-label="查看方式">{modes.map(([id,name])=><button key={id} type="button" data-projection={id} aria-pressed={mode===id} onClick={()=>show(view,id,focus)} disabled={!data}>{name}</button>)}</div>
+      <div className="cargo-projections" role="group" aria-label="查看方式">{modes.map(([id,name])=><button key={id} type="button" data-projection={id} aria-pressed={mode===id}
+        onClick={()=>{if(!(panorama && id===mode))show(view,id,view==='overview' && id==='3d'?undefined:focus);}} disabled={!data}>{name}</button>)}</div>
       {data && view==='overview' && mode==='3d' && <div className="cargo-map-tags">
         {[['pallet','下层空托盘','overview',1],['dock','装卸交接','dock',-1],['sorting','自动分拣环线','sorting',-1],['tables','组板作业','tables',engine.current.packingLabel],
           ...(data.site?[['meter','收货计量','sorting',data.sorter.feeds.length]]:[]),
@@ -153,7 +160,7 @@ export default function CargoApp(){
           <Icon name={paused?'play':'pause'} size={16}/>{paused?'继续':'暂停'}</button>
           <select aria-label="演示倍速" value={speed} onChange={e=>{const s=Number(e.target.value);setSpeed(s);engine.current?.setSpeed(s);}}>
             {[.5,1,2,4].map(s=><option key={s} value={s}>{s} 倍速</option>)}</select></>}
-        <button type="button" aria-label="重置视角" title="重置视角" disabled={!data} onClick={()=>show()}><Icon name="home" size={17}/></button>
+        <button type="button" aria-label={panorama?'回到全场':'重置视角'} title={panorama?'回到全场':'重置视角'} disabled={!data} onClick={()=>panorama?show('overview','3d',0):show()}><Icon name="home" size={17}/>{panorama && '回到全场'}</button>
       </div>
     </footer>
     {capture && detail && <div className="cargo-slate"><small>{data.title}　/　货站工艺</small><strong>{filmAction || active[1]}</strong><span>{detail.sheet.sheet}　·　{active[2]}</span></div>}
