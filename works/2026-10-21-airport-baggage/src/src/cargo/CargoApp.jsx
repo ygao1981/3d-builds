@@ -13,6 +13,7 @@ const views=[
   ['overview','主站房位置对照','分拣、空托盘、装卸与组板','target'],
 ];
 const modes=[['3d','三维演示'],['overlay','图纸叠合'],['paper','工艺原图']];
+const replayLabels={feed:'斜向供包',unload:'滑槽卸载',release:'底部拆盘',turn:'托盘转向',transfer:'顶升移载'};
 const capture=new URLSearchParams(location.search).has('capture');
 
 function describe(key,d){
@@ -29,6 +30,7 @@ export default function CargoApp(){
   const [data,setData]=useState(null),[status,setStatus]=useState('正在读取工艺图纸…'),[error,setError]=useState('');
   const [view,setView]=useState('sorting'),[mode,setMode]=useState('3d'),[focus,setFocus]=useState(-1);
   const [paused,setPaused]=useState(false),[speed,setSpeed]=useState(1);
+  const [filmAction,setFilmAction]=useState('');
   useEffect(()=>{
     let active=true,scene;
     openCargo(canvas.current,s=>active && setStatus(s)).then(value=>{
@@ -38,7 +40,14 @@ export default function CargoApp(){
     }).catch(e=>{if(active){console.error(e);setError(e.message.includes('布局') || e.message.includes('尚未配置')?e.message:'设备模型或图纸加载失败。请检查本地资料并确认浏览器已启用图形加速。');}});
     return ()=>{active=false;scene?.dispose();if(window.__cargo===scene)delete window.__cargo;};
   },[]);
-  function show(v=view,m=mode,i=-1){engine.current?.show(v,m,i);setView(v);setMode(m);setFocus(i);}
+  function show(v=view,m=mode,i=-1){engine.current?.show(v,m,i);setView(v);setMode(m);setFocus(i);if(capture)setFilmAction('');}
+  const replayCues=view==='pallet'?engine.current?.plant.pallet.cues:['sorting','chutes'].includes(view)?engine.current?.plant.sorting.cues:null;
+  function replay(id,cue){
+    const scene=engine.current;
+    show(cue.view,'3d',cue.focus);scene.seek(cue.time);
+    scene.setSpeed(1);scene.setPaused(false);setSpeed(1);setPaused(false);
+    if(capture)setFilmAction(replayLabels[id]);
+  }
   const active=views.find(([id])=>id===view),detail=data && describe(view,data),devices=engine.current?.nav[view] || [];
   return <div className={'cargo-shell'+(capture?' cargo-film':'')}>
     <header className="cargo-header">
@@ -50,7 +59,7 @@ export default function CargoApp(){
       <nav aria-label="工艺区域">{views.map(([id,name,sub,icon])=><button type="button" key={id} data-area={id} aria-pressed={view===id} onClick={()=>show(id,mode)} disabled={!data}>
         <Icon name={icon} size={20}/><span><strong>{name}</strong><small>{sub}</small></span></button>)}</nav>
       {detail && <section className="cargo-facts"><h3>设备资料</h3><dl>{detail.metrics.map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl><small>设备表　{detail.parts}</small>
-        <details><summary>模型来源</summary><p>纸箱、木托盘和直线滚筒由 NVIDIA 制作，CodePawl 转换为 GLB，场景中按设备尺寸适配。其余设备按工艺图建模。</p>
+        <details><summary>模型来源</summary><p>三款封口纸箱、木托盘和直线滚筒来自 NVIDIA SimReady，由 CodePawl 转换为 GLB。纸箱保留原始比例，设备按工艺图定位。</p>
           <a href={manifest.source.datasetUrl+'/tree/'+manifest.source.revision} target="_blank" rel="noreferrer">资产版本</a> · <a href={manifest.source.licenseUrl} target="_blank" rel="noreferrer">CC BY 4.0</a></details></section>}
     </aside>
     <main className="cargo-main"><canvas ref={canvas} aria-label="货站物流设备三维视窗"/>
@@ -60,6 +69,11 @@ export default function CargoApp(){
         {view!=='pallet' && <><i/>设备中心线及轮廓</>}
         {['sorting','chutes','pallet','overview'].includes(view) && <><i className="cargo-lower"/>空托盘线</>}
         <b/>工艺图线</div>}
+      {mode==='3d' && replayCues && <div className="cargo-replay" role="group" aria-label="工艺动作回放">
+        <span>动作回放</span>{Object.entries(replayCues).map(([id,cue])=>
+          <button type="button" key={id} data-cue={id} onClick={()=>replay(id,cue)}>{replayLabels[id]}</button>)}</div>}
+      {data && engine.current.missingCartons>0 && <div className="cargo-asset-notice" role="status">
+        有 {engine.current.missingCartons} 款纸箱未载入，正在使用已有纸箱演示。</div>}
       {(status && !data || error) && <div className="cargo-loading" role={error?'alert':'status'}>{error || status}
         {error && <button type="button" onClick={()=>location.reload()}>重新加载</button>}</div>}
     </main>
@@ -75,6 +89,6 @@ export default function CargoApp(){
         <button type="button" aria-label="重置视角" title="重置视角" disabled={!data} onClick={()=>show()}><Icon name="home" size={17}/></button>
       </div>
     </footer>
-    {capture && detail && <div className="cargo-slate"><small>{data.title}　/　货站工艺</small><strong>{active[1]}</strong><span>{detail.sheet.sheet}　·　{active[2]}</span></div>}
+    {capture && detail && <div className="cargo-slate"><small>{data.title}　/　货站工艺</small><strong>{filmAction || active[1]}</strong><span>{detail.sheet.sheet}　·　{active[2]}</span></div>}
   </div>;
 }

@@ -28,7 +28,8 @@ async function prepared(file, model) {
 
 async function prepare(model) {
   const file = path.join(destination, path.basename(model.file));
-  if (await prepared(file, model)) return;
+  if (await prepared(file, model)) return true;
+  if (argument === '--check' && model.optional) return false;
   if (argument === '--check') throw new Error('缺少 ' + model.id + '，请先运行 npm run assets。');
   let bytes;
   if (argument === '--download') {
@@ -46,12 +47,14 @@ async function prepare(model) {
   } catch (error) {
     if (error.code !== 'EEXIST') throw error;
   }
-  await prepared(file, model);
+  return prepared(file, model);
 }
 
 try {
-  for (const model of manifest.models) await prepare(model);
-  console.log('已校验 ' + manifest.models.length + ' 个 NVIDIA SimReady 模型。');
+  let checked=0;
+  for (const model of manifest.models) if(await prepare(model))checked++;
+  console.log('已校验 ' + checked + ' 个 NVIDIA SimReady 模型。');
+  if(checked<manifest.models.length)console.log('缺少可选纸箱款式，可运行 npm run assets 补齐。');
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;

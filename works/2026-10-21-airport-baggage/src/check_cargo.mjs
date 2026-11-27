@@ -3,7 +3,7 @@ import {mkdir,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
-const app=path.dirname(fileURLToPath(import.meta.url)), dest=path.join(app,'evidence/cargo');
+const app=path.dirname(fileURLToPath(import.meta.url)), dest=path.resolve(app,process.env.AIRPORT_EVIDENCE || 'evidence/cargo');
 await mkdir(dest,{recursive:true});
 const {chromium}=createRequire(path.join(process.env.PLAYWRIGHT_FROM||app,'package.json'))('playwright');
 const browser=await chromium.launch({channel:'chromium',args:process.platform==='win32'?['--enable-gpu','--use-angle=d3d11']:[]});

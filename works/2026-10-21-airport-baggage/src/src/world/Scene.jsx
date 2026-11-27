@@ -18,7 +18,7 @@ import { updatePins } from '../pins.js';
 import { updatePlayback } from '../playback.js';
 
 const ASSET_NAMES = ['bags', 'conveyors', 'sorter', 'screening', 'logistics', 'ramp'];
-const baggageModels = manifest.models.filter(model => !['pallet_a01','box_cardboard_a01'].includes(model.id));
+const baggageModels = manifest.models.filter(model => model.projects.includes('bagline'));
 const MODEL_IDS = [...ASSET_NAMES, ...baggageModels.map(model => model.id)];
 const MODEL_URLS = [
   ...ASSET_NAMES.map(name => '/assets/' + name + '.glb'),

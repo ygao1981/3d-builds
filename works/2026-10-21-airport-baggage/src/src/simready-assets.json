@@ -14,43 +14,85 @@
       "id": "conveyor_belt_a05",
       "file": "glb/conveyor_belt_a05.glb",
       "bytes": 2139512,
-      "sha256": "dc6427acbb47a059fe03a4909d5050710ee69f26c2ed1124133c7deb73a2f2ab"
+      "sha256": "dc6427acbb47a059fe03a4909d5050710ee69f26c2ed1124133c7deb73a2f2ab",
+      "projects": [
+        "cargo",
+        "bagline"
+      ]
     },
     {
       "id": "conveyor_belt_a02",
       "file": "glb/conveyor_belt_a02.glb",
       "bytes": 2640120,
-      "sha256": "237ebcb1944af19a760f80edaa4a31b2c54cbe2f5e2260ddefac24ae348765a1"
+      "sha256": "237ebcb1944af19a760f80edaa4a31b2c54cbe2f5e2260ddefac24ae348765a1",
+      "projects": [
+        "bagline"
+      ]
     },
     {
       "id": "cart_luggage_platform_a01",
       "file": "glb/cart_luggage_platform_a01.glb",
       "bytes": 2351092,
-      "sha256": "d26e5b76c5bbffea7d05bac11eb1632a2d927edec1bf33f470404cb601f07de0"
+      "sha256": "d26e5b76c5bbffea7d05bac11eb1632a2d927edec1bf33f470404cb601f07de0",
+      "projects": [
+        "bagline"
+      ]
     },
     {
       "id": "computer_scanner_barcode_b01",
       "file": "glb/computer_scanner_barcode_b01.glb",
       "bytes": 546532,
-      "sha256": "8c9723c96ff64baef07dbe3062d7893274aea8a9ba695bfea0ae6bdfa441ec30"
+      "sha256": "8c9723c96ff64baef07dbe3062d7893274aea8a9ba695bfea0ae6bdfa441ec30",
+      "projects": [
+        "bagline"
+      ]
     },
     {
       "id": "barrier_fence_metal_a02",
       "file": "glb/barrier_fence_metal_a02.glb",
       "bytes": 204316,
-      "sha256": "821a20d929c3e11d23cc171e638c8e8fc1e7baea207956cc6d929f567c36a25e"
+      "sha256": "821a20d929c3e11d23cc171e638c8e8fc1e7baea207956cc6d929f567c36a25e",
+      "projects": [
+        "bagline"
+      ]
     },
     {
       "id": "pallet_a01",
       "file": "glb/pallet_a01.glb",
       "bytes": 248648,
-      "sha256": "a9977de90583cab3604bfc79c44d0203736f31daa42100012c85cb7b32f6b2c4"
+      "sha256": "a9977de90583cab3604bfc79c44d0203736f31daa42100012c85cb7b32f6b2c4",
+      "projects": [
+        "cargo"
+      ]
     },
     {
       "id": "box_cardboard_a01",
       "file": "glb/box_cardboard_a01.glb",
       "bytes": 55852,
-      "sha256": "5032637dc1cca438653782bb0504f3ae5e49346236f711a523aa6df39a1cd3ad"
+      "sha256": "5032637dc1cca438653782bb0504f3ae5e49346236f711a523aa6df39a1cd3ad",
+      "projects": [
+        "cargo"
+      ]
+    },
+    {
+      "id": "box_cardboard_c02",
+      "optional": true,
+      "file": "glb/box_cardboard_c02.glb",
+      "bytes": 89220,
+      "sha256": "1134da159c842b3223c4a04fe3d7f4caecaba01c4e79b5fd90d97668eb607928",
+      "projects": [
+        "cargo"
+      ]
+    },
+    {
+      "id": "box_cardboard_d03",
+      "optional": true,
+      "file": "glb/box_cardboard_d03.glb",
+      "bytes": 113716,
+      "sha256": "1a0a3d5afdaf53e75a3df95e64fe9f30331dc858284d0c2fdc9c774267f7983e",
+      "projects": [
+        "cargo"
+      ]
     }
   ]
 }

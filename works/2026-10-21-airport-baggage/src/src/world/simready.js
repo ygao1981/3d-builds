@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BELT_TOP_HEIGHT } from '../sim/layout.js';
+import { measureRollers } from '../simready-rollers.js';
 
 const straight = 'conveyor_belt_a05';
 const bend = 'conveyor_belt_a02';
@@ -11,25 +12,6 @@ const fittings = {
   [straight]: { x: 0.5014, z: 0, yaw: Math.PI / 2 },
   [bend]: { x: 2, z: -1.5, yaw: Math.PI },
 };
-
-function measureRollers(scene) {
-  scene.updateMatrixWorld(true);
-  const rollers = [];
-  scene.traverse(node => {
-    if (!/^sm_roller\d+_.*_obj_00$/.test(node.name)) return;
-    const joint = node.userData.joints?.find(item => item.type === 'revolute');
-    if (!joint) throw new Error('Missing revolute joint on ' + node.name);
-    const pivot = node.getWorldPosition(new THREE.Vector3());
-    const top = new THREE.Box3().setFromObject(node, true).max.y;
-    const axis = new THREE.Vector3(...joint.axis)
-      .applyQuaternion(node.parent.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
-    rollers.push({ name: node.name, axis, rest: node.quaternion.clone(), top, radius: top - pivot.y });
-  });
-  if (!rollers.length || rollers.some(r => r.radius < 0.02 || r.radius > 0.04)) {
-    throw new Error('Unexpected roller geometry in ' + scene.name);
-  }
-  return rollers;
-}
 
 export function createSimReady(scenes) {
   const measured = new Map([straight, bend].map(id => [id, measureRollers(scenes[id])]));

@@ -7,9 +7,10 @@ import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { createCargoPlant } from './plant.js';
+import manifest from '../simready-assets.json';
 
 const rootUrl='/project-layout/';
-const ids=['conveyor_belt_a05','pallet_a01','box_cardboard_a01'];
+const cargoModels=manifest.models.filter(model=>model.projects.includes('cargo'));
 const refs=(d)=>({sorting:d.sorter.reference,pallet:d.pallet.reference,dock:d.dock.reference,tables:d.tables.reference});
 const middle=(a,b)=>[(a[0]+b[0])/2,(a[1]+b[1])/2];
 
@@ -77,7 +78,10 @@ export async function openCargo(canvas, onStatus) {
   const loader=new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   const tx=new T.TextureLoader();
   const [assets,images]=await Promise.all([
-    Promise.all(ids.map(async id=>[id,(await loader.loadAsync('/simready/'+id+'.glb')).scene])),
+    Promise.all(cargoModels.map(async model=>{
+      try{return [model.id,(await loader.loadAsync('/simready/'+model.id+'.glb')).scene];}
+      catch(error){if(!model.optional)throw error;console.warn('纸箱款式加载失败',model.id,error);return null;}
+    })),
     Promise.all(Object.entries(refs(data)).map(async ([key,ref])=>[key,await tx.loadAsync(rootUrl+ref.image)])),
   ]);
   const renderer=new T.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});
@@ -92,7 +96,7 @@ export async function openCargo(canvas, onStatus) {
   scene.add(sun,sun.target,new T.HemisphereLight('#dfefff','#9b9d8d',1.25));
   const floor=new T.Mesh(new T.PlaneGeometry(384,312),new T.MeshStandardMaterial({map:floorTexture(),roughness:.89}));
   floor.rotation.x=-Math.PI/2;floor.position.y=-.035;floor.receiveShadow=true;scene.add(floor);
-  const plant=createCargoPlant(data,Object.fromEntries(assets));
+  const loaded=assets.filter(Boolean),plant=createCargoPlant(data,Object.fromEntries(loaded));
   const meshes={sorting:plant.sorting.group,pallet:plant.pallet.group,dock:plant.dock,tables:plant.tables};
   const drawings={},lines=traces(data,plant);
   for(const [key,img] of images){
@@ -116,6 +120,9 @@ export async function openCargo(canvas, onStatus) {
       return {at:[(x0+x1)/2,(z0+z1)/2],w:x1-x0,d:z1-z0,y:0};
     }
     const chosen=nav[key][focus];
+    if(chosen && key==='pallet') return {at:chosen.at,w:5.4,d:4.0,y:chosen.height+.16};
+    if(chosen && key==='chutes') return {at:chosen.at,w:6.1,d:6.5,y:chosen.height};
+    if(chosen && key==='sorting') return {at:chosen.at,w:8.5,d:6.5,y:chosen.height};
     if(chosen) return {at:chosen.at,w:key==='dock'?15:11,d:key==='dock'?12:8,y:chosen.height};
     if(key==='chutes'){const a=data.sorter.chutes;return {at:middle(a[0][0],a.at(-1)[1]),w:distanceX(a)+5,d:12,y:1.5};}
     return {at:r.centre,w:r.width,d:r.depth,y:key==='sorting'?1.8:key==='pallet'?.45:0};
@@ -150,7 +157,7 @@ export async function openCargo(canvas, onStatus) {
     const ex=extent(),[x,z]=ex.at;resize();
     if(mode==='3d'){
       const az=key==='dock' || key==='overview'?.10:.35;
-      const angle=key==='pallet'?.91:.71;
+      const angle=key==='pallet'?(focus<0?.91:.43):.71;
       const distance=Math.max((ex.w*Math.cos(az)+ex.d*Math.sin(az))/perspective.aspect,ex.d*.9+ex.w*Math.sin(az)*.57)*1.87+2;
       camera.up.set(0,1,0);camera.position.set(x+Math.sin(az)*distance*Math.cos(angle),ex.y+distance*Math.sin(angle),z+Math.cos(az)*distance*Math.cos(angle));
       ctrl.target.set(x,ex.y,z);
@@ -171,7 +178,7 @@ export async function openCargo(canvas, onStatus) {
     ctrl.update();renderer.render(scene,camera);frameId=requestAnimationFrame(render);
   }
   show();frameId=requestAnimationFrame(render);
-  return {data,plant,renderer,nav,show, get time(){return time;}, get view(){return key;},get mode(){return mode;},
+  return {data,plant,renderer,nav,show,missingCartons:assets.length-loaded.length,get time(){return time;}, get view(){return key;},get mode(){return mode;},
     setPaused(v){paused=v;},setSpeed(v){speed=v;},seek(t){time=t;},getCamera(){return camera;},getTarget(){return ctrl.target.clone();},
     dispose(){disposed=true;cancelAnimationFrame(frameId);observer.disconnect();ctrl.dispose();
       const geometries=new Set(),materials=new Set(),textures=new Set();

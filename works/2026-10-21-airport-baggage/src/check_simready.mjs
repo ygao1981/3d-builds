@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const app = path.dirname(fileURLToPath(import.meta.url));
 const requireBrowser = createRequire(path.join(process.env.PLAYWRIGHT_FROM || app, 'package.json'));
 const { chromium } = requireBrowser('playwright');
-const dest = path.join(app, 'evidence');
+const dest = path.resolve(app, process.env.AIRPORT_EVIDENCE || 'evidence');
 await mkdir(dest, { recursive: true });
 const base = new URL(process.env.AIRPORT_URL || 'http://127.0.0.1:5426/');
 base.searchParams.set('project','bagline');
