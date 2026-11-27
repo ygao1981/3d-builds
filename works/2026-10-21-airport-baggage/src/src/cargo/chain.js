@@ -3,10 +3,10 @@ import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {amber,dark,frame,metal,side,steel,mod} from './hardware.js';
 
 const plateMetal=metal('#343e45',.49,.72), pinMetal=metal('#abb1a7',.42,.65);
-const radius=.102, pitch=.11, pinRadius=.021, railOffsets=[-.365,.365];
+const radius=.102, pitch=.11, pinRadius=.021, railOffsets=[-.575,.575];
 const plateHeight=.048;
-const plateGeometry=mergeGeometries([-.050,.050].map(z=>new T.BoxGeometry(.095,plateHeight,.018).translate(0,0,z)));
-const pinGeometry=new T.CylinderGeometry(pinRadius,pinRadius,.132,8).rotateX(Math.PI/2);
+const plateGeometry=mergeGeometries([-.0175,.0175].map(z=>new T.BoxGeometry(.095,plateHeight,.009).translate(0,0,z)));
+const pinGeometry=new T.CylinderGeometry(pinRadius,pinRadius,.049,8).rotateX(Math.PI/2);
 function sprocket(){
   const outline=new T.Shape();
   const steps=48;
@@ -15,37 +15,39 @@ function sprocket(){
     if(i)outline.lineTo(r*Math.cos(a),r*Math.sin(a));else outline.moveTo(r,0);
   }
   outline.closePath();
-  return new T.ExtrudeGeometry(outline,{depth:.059,bevelEnabled:false}).translate(0,0,-.0295);
+  return new T.ExtrudeGeometry(outline,{depth:.023,bevelEnabled:false}).translate(0,0,-.0115);
 }
 const gear=sprocket();
 
-export function makeChainBank(parent,b,s,ports){
-  const coords=ports.map(i=>s.transfers[i]),z=coords[0][1];
-  const x0=Math.min(...coords.map(p=>p[0]))-.48,x1=Math.max(...coords.map(p=>p[0]))+.48;
+function chainModule(parent,b,s,port){
+  const [liftX,z]=s.transfers[port], centre=liftX+(s.chainAxisOffset??.25);
+  const halfSpan=1.2-radius-.015;
+  const x0=centre-halfSpan,x1=centre+halfSpan;
   const axisY=s.chainDeck-plateHeight/2-radius,run=x1-x0,arc=Math.PI*radius,circuit=2*(run+arc);
   const count=Math.round(circuit/pitch),spacing=circuit/count;
   const plates=new T.InstancedMesh(plateGeometry,plateMetal,count*2),pins=new T.InstancedMesh(pinGeometry,pinMetal,count*2);
   plates.name='输送链侧板';pins.name='输送链销轴';parent.add(plates,pins);
-  const wheels=[];
+  const wheels=[],drive=[],driveY=axisY-2*radius;
   for(const offset of railOffsets){
     for(const x of [x0,x1]){
       const wheel=new T.Mesh(gear,steel);wheel.position.set(x,axisY,z+offset);parent.add(wheel);wheels.push(wheel);
     }
-    b.box((x0+x1)/2,axisY+.044,z+offset,run,.045,.075,dark);
-    b.box((x0+x1)/2,axisY-.07,z+offset,run,.025,.062,side);
+    const driver=new T.Mesh(gear,steel);driver.position.set(centre,driveY,z+offset);parent.add(driver);drive.push(driver);
+    b.box(centre,axisY+.044,z+offset,run,.045,.044,dark);
+    b.box(centre,axisY-.07,z+offset,run,.025,.044,side);
   }
-  for(const sign of [-1,1])b.box((x0+x1)/2,axisY-.14,z+sign*.52,run+.25,.16,.062,frame);
-  for(const [x] of coords){
+  for(const sign of [-1,1])b.box(centre,axisY-.14,z+sign*.57,2.38,.16,.06,frame);
+  for(const x of [x0+.19,x1-.19]){
     b.box(x,axisY-.23,z,.12,.09,1.12,frame);
     for(const offset of [-.50,.50]){
       b.box(x,(axisY-.27)/2,z+offset,.09,axisY-.27,.09,side);
       b.box(x,.027,z+offset,.18,.054,.18,steel);
     }
   }
-  for(const x of [x0,x1])b.roller([x,axisY,z-.56],[x,axisY,z+.56],.045);
-  const motorX=ports[0]<ports.at(-1)?x0:x1;
-  b.box(motorX,axisY,z-.585,.25,.22,.16,amber);b.roller([motorX,axisY,z-.65],[motorX,axisY,z-.94],.106,dark);
-  for(let i=0;i<5;i++)b.roller([motorX,axisY,z-.68-i*.048],[motorX,axisY,z-.69-i*.048],.118,side);
+  for(const x of [x0,x1])b.roller([x,axisY,z-.575],[x,axisY,z+.575],.035);
+  b.roller([centre,driveY,z-.65],[centre,driveY,z+.575],.04);
+  b.box(centre,driveY,z-.66,.24,.20,.16,amber);b.roller([centre,driveY,z-.74],[centre,driveY,z-1.03],.098,dark);
+  for(let i=0;i<5;i++)b.roller([centre,driveY,z-.75-i*.048],[centre,driveY,z-.76-i*.048],.107,side);
   const ref=new T.Object3D();
   function populate(travel){
     for(let j=0;j<count;j++){
@@ -65,14 +67,22 @@ export function makeChainBank(parent,b,s,ports){
     }
     plates.instanceMatrix.needsUpdate=pins.instanceMatrix.needsUpdate=true;
     for(const wheel of wheels)wheel.rotation.z=-travel/radius;
+    for(const wheel of drive)wheel.rotation.z=travel/radius;
   }
   populate(0);plates.computeBoundingSphere();pins.computeBoundingSphere();
   let previous=0;
-  return {plates,pins,wheels,update(time,machine){
+  return {port,centre,plates,pins,wheels,drive,setTravel(travel){
+    if(Math.abs(travel-previous)>1e-7){populate(travel);previous=travel;}
+  }};
+}
+
+export function makeChainBank(parent,b,s,ports){
+  const direction=Math.sign(s.transfers[ports[0]][0]-s.transfers[ports.at(-1)][0]);
+  const modules=ports.map(port=>chainModule(parent,b,s,port));
+  return {modules,update(time,machine){
     const t=mod(time+machine.offset,machine.cycle);
-    const direction=Math.sign(s.transfers[ports[0]][0]-s.transfers[machine.nearest][0]);
     let travel=0;
     for(const trip of machine.trips)if(trip.cross)travel+=Math.max(0,Math.min(t,trip.outletAt)-trip.chainAt)*.26;
-    travel*=direction;if(Math.abs(travel-previous)>1e-7){populate(travel);previous=travel;}
+    for(const module of modules)module.setTravel(travel*direction);
   }};
 }

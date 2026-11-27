@@ -46,8 +46,25 @@ export function createHall(data,assets,texture){
   const dockUpper=new T.Group(),upper=batch(dockUpper);group.add(dockUpper);
   const bays=data.dock.levellers.map(t=>({id:t.id,x:t.at[0]+data.dockOffset[0],z:t.at[1]+data.dockOffset[1]}));
   const dockZ=bays[0].z-data.dock.levelSize[1]/2;
-  b.box(mx,-.61,(dockZ+z1)/2,w,1.19,z1-dockZ,concrete);
   const packingPaint=metal('#718f84',.95,.02),dockPaint=metal('#82969b',.95,.02),sortPaint=metal('#788d95',.93,.02);
+  // Cut the receiving pits through both the slab and its painted surface.
+  const pits=data.dock.handoffs.map(([a,c])=>({
+    x:a[0]+data.dockOffset[0],start:a[1]+data.dockOffset[1]-.06,end:c[1]+data.dockOffset[1]+.06
+  })).sort((a,c)=>a.x-c.x);
+  function slab(left,right,front,back){
+    if(right<=left || back<=front)return;
+    b.box((left+right)/2,-.61,(front+back)/2,right-left,1.19,back-front,concrete);
+    const paintEnd=Math.min(back,dockZ+6.3);
+    if(front<paintEnd)surface(group,[[left,front],[right,front],[right,paintEnd],[left,paintEnd]],dockPaint);
+  }
+  let slabLeft=x0;
+  for(const pit of pits){
+    const half=data.dock.rollerWidth/2+.10,left=pit.x-half,right=pit.x+half;
+    slab(slabLeft,left,dockZ,z1);slab(left,right,dockZ,pit.start);slab(left,right,pit.end,z1);
+    b.box(pit.x,-1.61,(pit.start+pit.end)/2,half*2,.10,pit.end-pit.start,fascia);
+    slabLeft=right;
+  }
+  slab(slabLeft,x1,dockZ,z1);
   const contextPaint=metal('#a0adab',.96,.02),hatching=metal('#8b9e9b',.97,.01);
   for(const [[a,c],[v,f]] of data.site?.contextZones||[]){
     surface(group,[[a,c],[v,c],[v,f],[a,f]],contextPaint);
@@ -58,7 +75,6 @@ export function createHall(data,assets,texture){
     }
   }
   for(const poly of data.site?.packingZones||[])surface(group,poly,packingPaint);
-  surface(group,[[x0,dockZ],[x1,dockZ],[x1,dockZ+6.3],[x0,dockZ+6.3]],dockPaint);
   const ring=data.sorter,sw=Math.abs(ring.right-ring.left)+2*ring.radius+4.5;
   const chutes=ring.chutes,sz=(chutes[0][1][1]-ring.radius-2)/2,sd=chutes[0][1][1]+ring.radius+3.0;
   surface(group,[[-sw/2,sz-sd/2],[sw/2,sz-sd/2],[sw/2,sz+sd/2],[-sw/2,sz+sd/2]],sortPaint);
@@ -66,8 +82,18 @@ export function createHall(data,assets,texture){
   const apronDepth=14;
   b.box(mx,-1.23,dockZ-apronDepth/2,w,.30,apronDepth,yard);
   b.box(mx,-.63,z1,w,1.19,.20,fascia);
-  for(let x=x0+6;x<x1;x+=6)b.box(x,-.010,(dockZ+z1)/2,.017,.016,z1-dockZ,joint);
-  for(let z=dockZ+6;z<z1;z+=6)b.box(mx,-.01,z,w,.016,.017,joint);
+  for(let x=x0+6;x<x1;x+=6){
+    const pit=pits.find(p=>Math.abs(x-p.x)<data.dock.rollerWidth/2+.10),start=pit?pit.end:dockZ;
+    b.box(x,-.021,(start+z1)/2,.017,.016,z1-start,joint);
+  }
+  for(let z=dockZ+6;z<z1;z+=6){
+    let left=x0;
+    for(const pit of pits.filter(p=>p.start<z && z<p.end)){
+      const edge=pit.x-data.dock.rollerWidth/2-.10;
+      b.box((left+edge)/2,-.021,z,edge-left,.016,.017,joint);left=pit.x+data.dock.rollerWidth/2+.10;
+    }
+    b.box((left+x1)/2,-.021,z,x1-left,.016,.017,joint);
+  }
   if(texture && data.site){
     const r=data.site.reference;const mesh=new T.Mesh(new T.PlaneGeometry(r.width,r.depth),
       new T.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false,opacity:.7,toneMapped:false}));
@@ -148,6 +174,13 @@ export function createHall(data,assets,texture){
   rafters.finish();
   if(data.site){
     dressStaging(b,data.site);
+    for(const [x,z] of data.site.floorScales||[]){
+      b.box(x,.009,z,4,.024,4,platform);
+      for(const sign of [-1,1]){
+        b.box(x+sign*1.98,.025,z,.035,.009,4,steel);
+        b.box(x,.025,z+sign*1.98,4,.009,.035,steel);
+      }
+    }
     for(const [x,z] of data.site.reweigh){
       b.box(x,.012,z,4,.026,8,platform);
       for(const sign of [-1,1])b.box(x+sign*1.97,.035,z,.058,.021,7.98,amber);

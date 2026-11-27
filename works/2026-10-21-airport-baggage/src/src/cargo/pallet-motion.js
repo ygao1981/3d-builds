@@ -31,7 +31,8 @@ export function palletCycle(spec,index,objects){
     const hubAt=runAt+length(turn,hub)/speed, cross=outlet!==nearest;
     const chainAt=hubAt+(cross?transferTime:0), outletAt=chainAt+length(hub,at)/speed;
     const exitAt=outletAt+(cross?transferTime:0), finish=exitAt+length(at,stop)/speed;
-    cursor=finish+2.0;
+    // Hold the first receiving pallet long enough for an operator to load a carton at the chute.
+    cursor=finish+(index===0 && i===0?48:2);
     return {begin,release,turnAt,runAt,hubAt,chainAt,outletAt,exitAt,finish,end:cursor,at,stop,outlet,cross};
   });
   const cycle=cursor+1.0;

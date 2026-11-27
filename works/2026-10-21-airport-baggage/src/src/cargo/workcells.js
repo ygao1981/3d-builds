@@ -1,5 +1,5 @@
 import * as T from 'three';
-import {amber,batch,conveyor,dark,fitted,frame,lerp,metal,mod,side,steel} from './hardware.js';
+import {amber,batch,conveyor,dark,fitted,frame,lerp,metal,mod,side,steel,unitBox} from './hardware.js';
 import {scanner} from './induction.js';
 
 const kraft=[metal('#bf9056',.91,0),metal('#ac7843',.91,0),metal('#cfaa78',.91,0)];
@@ -89,7 +89,7 @@ function forkTruck(assets){
   return vehicle;
 }
 
-function truck(b,x,y,tail,color){
+function truck(b,x,y,tail,color,woodenPallet){
   // Cutaway on the loading side exposes the truck bed and the load.
   const bed=y+.04,depth=6.3,z=tail-depth/2;
   b.box(x,bed-.1,z,2.47,.2,depth,frame);b.box(x,bed+.012,z,2.42,.024,depth,wood);
@@ -112,9 +112,45 @@ function truck(b,x,y,tail,color){
     }
   }
   for(const dx of [-.55,.55])for(const dz of [3.6,4.75]){
-    palletBase(b,x+dx,bed+.025,tail-dz,.99,1.05);
+    if(woodenPallet && dx<0 && dz===3.6)woodenPallet.position.set(x+dx,bed+.025,tail-dz);
+    else palletBase(b,x+dx,bed+.025,tail-dz,.99,1.05);
     for(let k=0;k<2;k++)carton(b,x+dx,bed+.167+k*.52,tail-dz,.93,.51,.96,k);
   }
+}
+
+function liftingHandoff(group,path,s,index){
+  const [a,c]=path, mid=(a[1]+c[1])/2, width=s.rollerWidth;
+  const table=new T.Group(), deck=batch(table);
+  table.position.set(a[0],0,mid);table.name='整板箱升降交接辊道 '+(index+1);
+  const half=(c[1]-a[1])/2;
+  conveyor(deck,[0,-half],[0,half],0,0,width,'roller',false);
+  for(const sign of [-1,1])deck.box(sign*(width/2-.045),-.20,0,.09,.19,half*2,side);
+  deck.finish();group.add(table);
+  const base=-1.48, armLength=3.16;
+  const arms=[-1,1].flatMap(side=>[-1,1].map(diagonal=>{
+    const arm=new T.Mesh(unitBox,steel);arm.scale.set(.095,.13,armLength);
+    arm.position.set(a[0]+side*(width*.33+diagonal*.052),0,mid);group.add(arm);
+    return {arm,diagonal};
+  }));
+  const uld=new T.Group(),unit=batch(uld);board(unit,0,0,0,2.43,3.16,index?2:3,true,index*4);unit.finish();group.add(uld);
+  const low=-.492,high=s.deck,verticalSpeed=.05,beltSpeed=.30;
+  const z0=a[1]+1.63,z1=path.at(-1)[1]-1.63;
+  const liftTime=(high-low)/verticalSpeed,moveAt=2+liftTime+1;
+  const lowerAt=moveAt+(c[1]+1.58+.05-z0)/beltSpeed;
+  const delivered=moveAt+(z1-z0)/beltSpeed;
+  const period=Math.max(lowerAt+liftTime,delivered+3)+3;
+  function update(time){
+    const t=mod(time+index*period*.48,period);
+    const y=low+Math.min(high-low,Math.max(0,t-2)*verticalSpeed)-Math.min(high-low,Math.max(0,t-lowerAt)*verticalSpeed);
+    table.position.y=y;
+    const rise=y-.245-base;
+    for(const {arm,diagonal} of arms){
+      arm.position.y=base+rise/2;arm.rotation.x=diagonal*Math.asin(rise/armLength);
+    }
+    const z=Math.min(z1,z0+Math.max(0,t-moveAt)*beltSpeed);
+    uld.position.set(a[0],z<c[1]?y:high,z);uld.visible=t<delivered+3;
+  }
+  return {table,uld,update,moveAt,lowerAt,period};
 }
 
 export function createDockOperations(group,s,assets){
@@ -124,22 +160,16 @@ export function createDockOperations(group,s,assets){
   const hx=s.handoffs[0][0][0];
   const active=s.levellers.reduce((best,p,i)=>Math.abs(p.at[0]-hx)<Math.abs(s.levellers[best].at[0]-hx)?i:best,0);
   if(!used.some(u=>u.i===active))used.push({p:s.levellers[active],i:active});
-  for(const {p:{at:[x,z]},i} of used)truck(b,x,0,z-s.levelSize[1]/2-.18,paint[i%3]);
+  const truckPallet=fitted(assets.pallet_a01,.99,.142,1.05);group.add(truckPallet);
+  for(const {p:{at:[x,z]},i} of used)truck(b,x,0,z-s.levelSize[1]/2-.18,paint[i%3],i===active?truckPallet:null);
   const [x,z]=s.levellers[active].at, vehicle=forkTruck(assets);group.add(vehicle);
   const cargo=new T.Group();cargo.name='货车卸下的托货';group.add(cargo);
   const pack=batch(cargo);palletBase(pack,0,0,0,1.02,1.08);
   for(let j=0;j<3;j++)for(const sign of [-1,1])carton(pack,sign*.245,.145+j*.37,0,.478,.36,.96,j);
   pack.finish();vehicle.rotation.y=Math.PI;
-  const uld=new T.Group(),unit=batch(uld);board(unit,0,0,0,2.43,3.16,3,true);unit.finish();group.add(uld);
-  for(const [a,bp] of s.handoffs){
-    for(const sign of [-1,1]){
-      b.box(a[0]+sign*1.53,.53,(a[1]+bp[1])/2,.09,.24,Math.abs(bp[1]-a[1]),side);
-      for(let j=0;j<5;j++)b.box(a[0]+sign*1.54,.66,lerp(a[1],bp[1],j/4),.13,.09,.15,amber);
-    }
-  }
-  const counter=s.handoffs[1];if(counter)board(b,counter[1][0],s.deck,counter[1][1]+.65,2.40,3.1,2,true,4);
+  const lifts=s.handoffs.map((path,i)=>liftingHandoff(group,path,s,i));
   b.finish();
-  const path=s.handoffs[0],drop=z+5.5,pick=z-3.35;
+  const drop=z+5.5,pick=z-3.35;
   function update(time){
     const t=mod(time,30);
     let loadZ=pick, forkZ;
@@ -149,11 +179,11 @@ export function createDockOperations(group,s,assets){
     const lift=.065*phase(t,5.6,6.6)*(1-phase(t,16.3,17.3));
     vehicle.position.set(x,0,forkZ);cargo.position.set(x,lerp(.065,.004,phase(loadZ,pick,drop))+lift,loadZ);
     vehicle.userData.setForkHeight(cargo.position.y+.1065-.035*(1-phase(t,5.5,6)+phase(t,17,18)));
-    const run=mod(time,50),u=run<22?phase(run,0,22):1-phase(run,25,48);
-    uld.position.set(path[0][0],s.deck,lerp(path[0][1]+1.63,path.at(-1)[1]-1.63,u));
+    for(const lift of lifts)lift.update(time);
     if(t>23)vehicle.position.z=lerp(drop+4.3,z+5.6,phase(t,23,29));
   }
-  return {active,vehicle,cargo,uld,update,cues:{truck:{view:'dock',focus:active,time:5.8},handoff:{view:'dock',focus:s.levellers.length,time:6}}};
+  return {active,vehicle,cargo,uld:lifts[0].uld,lifts,update,cues:{truck:{view:'dock',focus:active,time:5.8},
+    raise:{view:'dock',focus:s.levellers.length,time:5},handoff:{view:'dock',focus:s.levellers.length,time:lifts[0].moveAt+15}}};
 }
 
 function operator(parent){
@@ -167,14 +197,54 @@ function operator(parent){
     figure.add(...joints);return {sign,shoulder,joints};
   });
   parent.add(figure);
-  return {figure,hold(y){
+  return {figure,hold(y,reach=.37){
     for(const {sign,shoulder,joints} of arms){
-      const elbow=new T.Vector3(sign*.234,(1.19+y)/2,.12),hand=new T.Vector3(sign*.21,y,.37);
+      const elbow=new T.Vector3(sign*.234,(1.19+y)/2,reach*.42),hand=new T.Vector3(sign*.21,y,reach);
       [elbow,hand].forEach((to,i)=>{const from=i?elbow:shoulder,obj=joints[i],delta=to.clone().sub(from);
         obj.position.copy(from).lerp(to,.5);obj.scale.y=delta.length()/.24;
         obj.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),delta.normalize());});
     }
   }};
+}
+
+export function createChutePacking(sorting,pallet,data){
+  const machine=pallet.movers[0],trip=machine.trips[0],port=trip.outlet;
+  const tail=data.sorter.chutes[port][1],at=trip.stop.map((v,i)=>v+data.pallet.offset[i]);
+  const top=data.pallet.deck+.145,destination=[at[0],top,at[1]];
+  const candidates=sorting.arrivals.filter(e=>e.outlet===port).map(e=>{
+    const parcel=e.box.clone(true);parcel.rotation.set(0,0,0);parcel.visible=false;sorting.group.add(parcel);
+    return {...e,parcel};
+  });
+  function next(start){
+    let chosen,best=Infinity;
+    for(const e of candidates){
+      const time=start+mod(e.at-start,e.period);
+      if(time<best){chosen=e;best=time;}
+    }
+    return {event:chosen,at:best};
+  }
+  const worker=operator(sorting.group);worker.figure.rotation.y=-Math.PI/2;
+  function update(time){
+    const local=mod(time+machine.offset,machine.cycle);
+    const {event,at:arrival}=next(time-local+trip.finish+.20);
+    const age=time-arrival,sz=event.box.userData.size;
+    const startZ=tail[1]-sz[2]/2;
+    const ready=local>=trip.finish && local<trip.end && age>=0;
+    const carry=ready?phase(age,1,5):0,lower=ready?phase(age,5,6.4):0;
+    const x=lerp(tail[0],at[0],carry),z=lerp(startZ,at[1],carry);
+    const y=lerp(data.sorter.chuteBottom,top,lower)+(ready?.055*phase(age,0,1)*(1-lower):0);
+    for(const e of candidates)e.parcel.visible=ready && e===event;
+    if(ready){
+      // The sorter recycles its display object on the next lap. Transfer its identical carton at rest.
+      if(age<.86)event.box.visible=false;
+      event.parcel.position.set(x,y,z);
+    }
+    const stepBack=ready?phase(age,6.6,10):0,feet=x+.83;
+    worker.figure.position.set(feet,0,lerp(z,startZ,stepBack));
+    worker.hold(lerp(y+sz[1]*.48,1.05,stepBack),lerp(.83-sz[0]/2,.32,stepBack));
+  }
+  const firstArrival=next(trip.finish-machine.offset+.20).at;
+  return {update,firstArrival,port,candidates,destination};
 }
 
 export function createPackingOperations(group,s,assets,nearChute){
@@ -242,7 +312,7 @@ export function fitReceipt(group,at,assets){
   b.finish();const item=fitted(assets.box_cardboard_a01,.45,.36,.44,true);group.add(item);
   let last;
   return {item,update(t){
-    const offset=lerp(-2.9,2.85,mod(t,8)/8);item.position.set(x,h,z+offset);
+    const offset=-2.9+mod(t,11.5)*.5;item.position.set(x,h,z+offset);
     const state=Math.abs(offset)<.65?'称重中':offset>=-1.2 && offset<-.65?'读码中':'待料';
     if(last===state)return;
     ctx.fillStyle='#183731';ctx.fillRect(0,0,256,104);ctx.fillStyle='#b6e1b3';ctx.textAlign='center';

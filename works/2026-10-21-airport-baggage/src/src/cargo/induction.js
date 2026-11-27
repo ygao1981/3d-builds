@@ -3,21 +3,40 @@ import {amber,belt,dark,frame,side,steel,conveyor,distance,lerp} from './hardwar
 
 function slab(group, corners, top, thickness, material) {
   const vertices=[];
-  const push=(p,y)=>vertices.push(p[0],y,p[1]);
+  const push=(p,depth)=>vertices.push(p[0],(typeof top==='function'?top(p):top)-depth,p[1]);
   for(let i=1;i<corners.length-1;i++){
-    for(const p of [corners[0],corners[i+1],corners[i]])push(p,top);
-    for(const p of [corners[0],corners[i],corners[i+1]])push(p,top-thickness);
+    for(const p of [corners[0],corners[i+1],corners[i]])push(p,0);
+    for(const p of [corners[0],corners[i],corners[i+1]])push(p,thickness);
   }
   for(let i=0;i<corners.length;i++){
     const a=corners[i],b=corners[(i+1)%corners.length];
-    for(const [p,y] of [[a,top],[b,top],[a,top-thickness],[b,top],[b,top-thickness],[a,top-thickness]])push(p,y);
+    for(const [p,depth] of [[a,0],[b,0],[a,thickness],[b,0],[b,thickness],[a,thickness]])push(p,depth);
   }
   const geo=new T.BufferGeometry();
   geo.setAttribute('position',new T.Float32BufferAttribute(vertices,3));geo.computeVertexNormals();
   const mesh=new T.Mesh(geo,material);mesh.castShadow=mesh.receiveShadow=true;group.add(mesh);return mesh;
 }
 
-export function buildInduction(b,group,spec,site) {
+function supplyTiming(route,ringSpeed){
+  const entrySpeed=.90,last=route.at(-1),prev=route.at(-2),finalRun=distance(prev,last);
+  const length=route.slice(1).reduce((n,p,i)=>n+distance(p,route[i]),0);
+  // Match the component along the main line while the angled belt delivers the carton.
+  const exitSpeed=ringSpeed*finalRun/Math.abs(last[0]-prev[0]);
+  const cruise=Math.min(1.4,finalRun*.30),ramp=Math.min(1.6,finalRun*.38),lead=length-ramp-cruise;
+  const t0=lead/entrySpeed,accel=(exitSpeed*exitSpeed-entrySpeed*entrySpeed)/(2*ramp);
+  const t1=t0+2*ramp/(entrySpeed+exitSpeed),duration=t1+cruise/exitSpeed;
+  return {length,entrySpeed,exitSpeed,duration,timeAt(s){
+    if(s<=lead)return s/entrySpeed;
+    if(s<=lead+ramp)return t0+2*(s-lead)/(entrySpeed+Math.sqrt(entrySpeed**2+2*accel*(s-lead)));
+    return t1+(s-lead-ramp)/exitSpeed;
+  },distanceAt(t){
+    if(t<=t0)return t*entrySpeed;
+    if(t<=t1){const dt=t-t0;return lead+dt*(entrySpeed+accel*dt/2);}
+    return lead+ramp+(t-t1)*exitSpeed;
+  }};
+}
+
+export function buildInduction(b,group,spec,site,ringSpeed) {
   const deck=spec.deck, span=spec.feedWidth;
   const noseLimit=-spec.radius-(spec.width+.06)/2-.055;
   const noses=[],routes=[];
@@ -30,9 +49,20 @@ export function buildInduction(b,group,spec,site) {
     const point=(s,offset)=>[start[0]+s*dx-offset*dz,start[1]+s*dz+offset*dx];
     const end=offset=>(noseLimit-start[1]-offset*dx)/dz;
     const noseLength=end(0), solids=[];
+    const top=p=>deck+.02*(1-T.MathUtils.clamp((p[1]-start[1])/(noseLimit-start[1]),0,1));
     function strip(s0,s1,lo,hi,y,thick,material){
-      const corners=[[s0,lo],[Math.min(s1,end(lo)),lo],[Math.min(s1,end(hi)),hi],[s0,hi]].map(([s,n])=>point(s,n));
-      return slab(group,corners,y,thick,material);
+      const section=[[s0,lo],[s1,lo],[s1,hi],[s0,hi]].map(([s,n])=>point(s,n));
+      const corners=[];
+      section.forEach((a,j)=>{
+        const next=section[(j+1)%4],inside=a[1]<=noseLimit;
+        if(inside)corners.push(a);
+        if(inside!==(next[1]<=noseLimit)){
+          const u=(noseLimit-a[1])/(next[1]-a[1]);
+          corners.push([lerp(a[0],next[0],u),noseLimit]);
+        }
+      });
+      if(corners.length<3)return null;
+      return slab(group,corners,p=>top(p)+y-deck,thick,material);
     }
     for(let n=0;n<5;n++){
       const a=n*noseLength/5,c=n===4?len+.85:(n+1)*noseLength/5-.025;
@@ -51,7 +81,7 @@ export function buildInduction(b,group,spec,site) {
     const bevelOffset=.115/dz;
     const cap=[point(end(-span*.47)-bevelOffset,-span*.47),lead0,lead1,point(end(span*.47)-bevelOffset,span*.47)];
     solids.push(slab(group,cap,deck+.001,.018,steel));
-    noses.push(solids);
+    noses.push(solids.filter(Boolean));
     const branch=site?.branches?.[i];
     if(branch){
       for(let j=1;j<branch.length;j++)conveyor(b,branch[j-1],branch[j],deck+.02,deck+.02,span);
@@ -61,11 +91,11 @@ export function buildInduction(b,group,spec,site) {
         const trunk=site.distribution.at(-1),split=branch[0];
         // Keep the same carton on the registered common belt until its branch takes it.
         const entry=[Math.max(site.distribution.at(-2)[0]-6,split[0]-6.0),trunk[1]];
-        routes.push([entry,[split[0]-.8,trunk[1]],...branch,handoff,join]);
-      }else routes.push([...branch,handoff,join]);
-    }else routes.push([start,join]);
+        routes.push([entry,[split[0]-.8,trunk[1]],...branch].map(p=>[...p,deck+.02]).concat([[...handoff,top(handoff)],[...join,deck]]));
+      }else routes.push([...branch.map(p=>[...p,deck+.02]),[...handoff,top(handoff)],[...join,deck]]);
+    }else routes.push([[...start,top(start)],[...join,deck]]);
   }
-  return {noses,routes};
+  return {noses,routes,profiles:routes.map(route=>supplyTiming(route,ringSpeed))};
 }
 
 export function pathAt(route,fraction){
@@ -74,7 +104,7 @@ export function pathAt(route,fraction){
   for(let i=0;i<lengths.length;i++){
     if(left<=lengths[i] || i===lengths.length-1){
       const a=route[i],b=route[i+1],u=T.MathUtils.clamp(left/Math.max(.001,lengths[i]),0,1);
-      return [lerp(a[0],b[0],u),lerp(a[1],b[1],u),-Math.atan2(b[1]-a[1],b[0]-a[0])];
+      return [lerp(a[0],b[0],u),lerp(a[1],b[1],u),-Math.atan2(b[1]-a[1],b[0]-a[0]),lerp(a[2],b[2],u)];
     }
     left-=lengths[i];
   }

@@ -38,7 +38,7 @@ function batch(parent) {
 }
 const identity=new T.Quaternion();
 
-function conveyor(b,a,c,y0,y1,width,kind='belt') {
+function conveyor(b,a,c,y0,y1,width,kind='belt',stands=true) {
   const len=distance(a,c); if(len<.01) return;
   const nx=(c[1]-a[1])/len,nz=-(c[0]-a[0])/len;
   const xyz=(t,lift,off=0)=>[lerp(a[0],c[0],t)+nx*off,lerp(y0,y1,t)+lift,lerp(a[1],c[1],t)+nz*off];
@@ -49,6 +49,7 @@ function conveyor(b,a,c,y0,y1,width,kind='belt') {
   } else b.beam(xyz(0,-.03),xyz(1,-.03),width*.95,.06,belt);
   const railOffset=width*.5+(kind==='roller'?.032:0);
   for(const sign of [-1,1]) b.beam(xyz(0,-.045,railOffset*sign),xyz(1,-.045,railOffset*sign),.055,.16,side);
+  if(!stands)return;
   const pairs=Math.max(1,Math.ceil(len/2.8));
   for(let i=0;i<pairs;i++) for(const sign of [-1,1]) {
     const [x,y,z]=xyz((i+.42)/pairs,-.22,width*.39*sign);

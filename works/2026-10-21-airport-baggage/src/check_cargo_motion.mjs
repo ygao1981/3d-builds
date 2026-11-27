@@ -73,13 +73,14 @@ try{
     }
     const sample=sorting.loads.find(l=>l.outlet===sorting.cues.unload.focus),s=c.data.sorter;
     const [head,tail]=s.chutes[sample.outlet],run=Math.hypot(tail[0]-head[0],tail[1]-head[1]);
-    const y=z=>s.chuteTop+(s.chuteBottom-s.chuteTop)*Math.min(1,Math.max(0,(z-head[1])/(run*.8)));
+    const slope=run-(s.chuteFlat??.50);
+    const y=z=>s.chuteTop+(s.chuteBottom-s.chuteTop)*Math.min(1,Math.max(0,(z-head[1])/slope));
     for(let i=0;i<=64;i++){
       sorting.update(sorting.cues.unload.time+.8+.55+.008+4.78*i/64);
       const box=sample.box,half=box.userData.size[2]/2;
       const ends=[-half,half].map(z=>box.localToWorld(box.position.clone().set(0,0,z)));
       const [rear,front]=ends.sort((a,b)=>a.z-b.z),points=[rear.z,front.z];
-      for(const knee of [head[1],head[1]+.8*run])if(knee>rear.z && knee<front.z)points.push(knee);
+      for(const knee of [head[1],head[1]+slope])if(knee>rear.z && knee<front.z)points.push(knee);
       const gap=Math.min(...points.map(z=>rear.y+(front.y-rear.y)*(z-rear.z)/(front.z-rear.z)-y(z)));
       checks.minContact=Math.min(checks.minContact,gap);checks.maxContact=Math.max(checks.maxContact,gap);
       checks.peakTilt=Math.max(checks.peakTilt,box.rotation.x*180/Math.PI);

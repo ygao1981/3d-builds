@@ -47,14 +47,15 @@ export function targets(data) {
   const sort=data.sorter, p=data.pallet, d=data.dock;
   return {
     sorting:sort.feeds.map(([a,c],i)=>({label:'供包台 '+(i+1),at:middle(a,c),height:sort.deck})).concat(data.site?[{label:'收货扫码称重',at:data.site.receipt,height:.85}]:[]).concat(data.site?.distribution?[{label:'分流与排队',at:data.site.branches[Math.floor(sort.feeds.length/2)][0],height:sort.deck}]:[]),
-    chutes:sort.chutes.map(([a,c],i)=>({label:'滚筒滑槽 '+(i+1),at:middle(a,c),height:(sort.chuteTop+sort.chuteBottom)/2})),
+    chutes:sort.chutes.map(([a,c],i)=>({label:'滚筒滑槽 '+(i+1),at:middle(a,c),height:(sort.chuteTop+sort.chuteBottom)/2})).concat({
+      label:'格口人工码盘',at:middle(sort.chutes[0][1],p.tails[0].map((v,i)=>v+p.offset[i])),height:1.12}),
     pallet:[...p.stackers.map((at,i)=>({label:'拆盘机 '+(i+1),at,height:p.deck})),
       ...p.turns.map((at,i)=>({label:'旋转台 '+(i+1),at,height:p.deck})),
       ...p.transfers.map((at,i)=>({label:'移载支路 '+(i+1),at,height:p.deck})),{label:'横向输送链',at:middle(p.transfers[0],p.transfers[p.turns.length+1]),height:p.chainDeck}],
     dock:[...d.levellers.map(item=>({label:item.id+' 调平台',at:item.at,height:.5})),
       ...d.handoffs.map((row,i)=>({label:'整板箱交接 '+(i+1),at:row[1],height:d.deck})),{label:'全部月台',wide:true}],
     tables:data.tables.places.map(({at},i)=>({label:'图示台位 '+String(i+1).padStart(2,'0'),at,height:data.tables.height})).concat({label:'全部台位',wide:true}),
-    overview:[],
+    overview:[{label:'全站房物流范围',wide:true}],
   };
 }
 
@@ -112,6 +113,17 @@ export async function openCargo(canvas, onStatus) {
   function extent() {
     const k=activeRegion(),r=refs(data)[k];
     if(k==='overview'){
+      if(mode==='3d' && focus<0){
+        const global=(p,offset)=>p.map((v,i)=>v+offset[i]);
+        const points=[data.site?.receipt || data.sorter.feeds[0][0],
+          global(data.dock.levellers[plant.dockOps.active].at,offsets.dock),
+          global(data.dock.handoffs[0][0],offsets.dock),
+          global(data.tables.places[plant.packing.active].at,offsets.tables),
+          [data.sorter.left-data.sorter.radius,0],[data.sorter.right+data.sorter.radius,0]];
+        const xx=points.map(p=>p[0]),zz=points.map(p=>p[1]);
+        const left=Math.min(...xx)-5,right=Math.max(...xx)+6,front=Math.min(...zz)-7,back=Math.max(...zz)+6;
+        return {at:[(left+right)/2,(front+back)/2],w:right-left,d:back-front,y:1.5};
+      }
       const [[x,z],[xx,zz]]=hall.bounds;
       return {at:middle([x,z],[xx,zz]),w:xx-x,d:zz-z,y:1.8};
     }
@@ -156,7 +168,7 @@ export async function openCargo(canvas, onStatus) {
       lines[id].visible=onSheet && mode==='overlay';
     }
     if(drawings.hall)drawings.hall.visible=!view3d && k!=='pallet';
-    hall.group.visible=view3d;hall.overhead.visible=k==='overview';hall.dockUpper.visible=k!=='dock';
+    hall.group.visible=view3d;hall.overhead.visible=k==='overview' && focus>=0;hall.dockUpper.visible=k!=='dock';
     scene.background.set(view3d?'#a9bab9':'#f2f4f1');
     camera=mode==='3d'?perspective:ortho;ctrl.object=camera;ctrl.enableRotate=mode==='3d';
     ctrl.mouseButtons.LEFT=mode==='3d'?T.MOUSE.ROTATE:T.MOUSE.PAN;
@@ -205,8 +217,7 @@ export async function openCargo(canvas, onStatus) {
     tables:[...data.tables.places.at(-1).at.map((n,i)=>n+offsets.tables[i]),2.4],
     ...(data.site?{meter:[...data.site.receipt,2.1]}:{}),
   };
-  // Pick the eastmost packing cluster for its spatial label; selecting it targets that very table.
-  const packingLabel=data.tables.places.reduce((best,p,i)=>p.at[0]>data.tables.places[best].at[0]?i:best,0);
+  const packingLabel=plant.packing.active;
   labels.tables=[...data.tables.places[packingLabel].at.map((n,i)=>n+offsets.tables[i]),2.1];
   const tagPoint=new T.Vector3();
   function tag(key,element){if(element)tags.set(key,element);else tags.delete(key);}
@@ -230,6 +241,7 @@ export async function openCargo(canvas, onStatus) {
     if(mode==='3d'){
       if(meshes.sorting.visible)plant.sorting.update(time);
       if(meshes.pallet.visible)plant.pallet.update(time);
+      if(meshes.sorting.visible)plant.chutePacking.update(time);
       plant.dockOps.update(time);plant.packing.update(time);hall.meter?.update(time);
     }
     ctrl.update();renderer.render(scene,camera);positionTags();frameId=requestAnimationFrame(render);

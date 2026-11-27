@@ -1,14 +1,14 @@
 import * as T from 'three';
 import {buildInduction,pathAt,scanner} from './induction.js';
 import {makeChainBank} from './chain.js';
-import {createDockOperations,createPackingOperations} from './workcells.js';
+import {createDockOperations,createPackingOperations,createChutePacking} from './workcells.js';
 import { palletCycle } from './pallet-motion.js';
 import { measureRollers } from '../simready-rollers.js';
 
-import {frame,belt,steel,side,amber,platform,unitBox,lerp,mod,distance,batch,conveyor,fitted} from './hardware.js';
+import {frame,belt,steel,side,amber,platform,unitBox,lerp,mod,distance,batch,conveyor,fitted,metal} from './hardware.js';
 // Rest the rigid carton on the slope, including when its front and back cross a change of grade.
 function chutePose(box,head,tail,u,spec){
-  const run=distance(head,tail),s=u*run,knee=.80*run;
+  const run=distance(head,tail),s=u*run,knee=run-(spec.chuteFlat??.50);
   const surface=x=>lerp(spec.chuteTop,spec.chuteBottom,T.MathUtils.clamp(x/knee,0,1));
   const half=box.userData.size[2]/2;
   let tilt=0,reach=half;
@@ -61,14 +61,16 @@ function sorterPlant(spec,scenes,site) {
   const cells=new T.InstancedMesh(unitBox,belt,spec.carts);
   const edges=new T.InstancedMesh(unitBox,side,spec.carts);
   cells.castShadow=true;cells.receiveShadow=true;group.add(cells,edges);
-  const induction=buildInduction(b,group,spec,site);
+  const speed=1.48,induction=buildInduction(b,group,spec,site,speed);
   for(const [a,c] of spec.chutes) {
-    const mid=[lerp(a[0],c[0],.80),lerp(a[1],c[1],.80)];
+    const knee=1-(spec.chuteFlat??.50)/distance(a,c);
+    const mid=[lerp(a[0],c[0],knee),lerp(a[1],c[1],knee)];
     conveyor(b,a,mid,spec.chuteTop,spec.chuteBottom,spec.chuteWidth,'roller');
     conveyor(b,mid,c,spec.chuteBottom,spec.chuteBottom,spec.chuteWidth,'roller');
+    b.box(c[0],spec.chuteBottom+.054,c[1]+.021,spec.chuteWidth,.108,.04,side);
   }
   for(const path of spec.returns) for(let i=1;i<path.length;i++){
-    const a=path[i-1],c=path[i];conveyor(b,a,c,a[2],c[2],1.2);
+    const a=path[i-1],c=path[i];conveyor(b,a,c,a[2],c[2],1.2,'belt',distance(a,c)>.8 || i%8===0);
   }
   const [sx,sz]=spec.scanner;
   scanner(b,sx,sz,deck,width,false,true);
@@ -80,13 +82,12 @@ function sorterPlant(spec,scenes,site) {
     const box=cartons[(i+Math.floor(i/spec.chutes.length))%cartons.length].clone(true);group.add(box);
     return {box,slot:Math.floor(i*spec.carts/18),inlet:i%spec.feeds.length,outlet:i%spec.chutes.length};
   });
-  const routeLengths=induction.routes.map(path=>path.slice(1).reduce((sum,p,i)=>sum+distance(path[i],p),0));
-  const tmp=new T.Object3D(),speed=1.48,phase=.55;
+  const tmp=new T.Object3D(),phase=.55;
   const cycle=loop.length/speed, chosen=loads.find(l=>l.outlet===Math.floor(spec.chutes.length/2)) || loads[0];
-  const [from,join]=spec.feeds[chosen.inlet],head=spec.chutes[chosen.outlet][0];
+  const [,join]=spec.feeds[chosen.inlet],head=spec.chutes[chosen.outlet][0];
   const when=s=>mod((s-chosen.slot*loop.length/spec.carts)/speed,cycle);
   const cues={
-    feed:{view:'sorting',focus:chosen.inlet,time:mod(when(spec.right-join[0])-Math.min(4,distance(from,join)/1.2),cycle)},
+    feed:{view:'sorting',focus:chosen.inlet,time:mod(when(spec.right-join[0])-3.7,cycle)},
     unload:{view:'chutes',focus:chosen.outlet,time:mod(when(loop.straight+loop.arc+head[0]-spec.left-speed*phase)-.8,cycle)},
   };
   function update(t) {
@@ -101,7 +102,7 @@ function sorterPlant(spec,scenes,site) {
       const [entry,join]=spec.feeds[inlet],[head,tail]=spec.chutes[outlet];
       const feedS=spec.right-join[0], releaseS=loop.straight+loop.arc+head[0]-spec.left-speed*phase;
       const age=mod(t*speed+slot*loop.length/spec.carts-feedS,loop.length)/speed;
-      const carry=(releaseS-feedS)/speed, incoming=routeLengths[inlet]/1.2;
+      const profile=induction.profiles[inlet],carry=(releaseS-feedS)/speed,incoming=profile.duration;
       box.visible=true;box.rotation.set(0,0,0);
       if(age<carry){
         const [x,z,dx,dz]=loop.at(feedS+age*speed);box.position.set(x,deck+.003,z);box.rotation.y=-Math.atan2(dz,dx);
@@ -114,21 +115,39 @@ function sorterPlant(spec,scenes,site) {
         const u=Math.min(1,(age-carry-phase)/4.8);
         chutePose(box,head,tail,u*(1-box.userData.size[2]/(2*distance(head,tail))),spec);
       } else if(age>cycle-incoming){
-        const u=1-(cycle-age)/incoming,[x,z,yaw]=pathAt(induction.routes[inlet],u);
-        box.position.set(x,deck,z);box.rotation.y=yaw;
+        const u=profile.distanceAt(age+incoming-cycle)/profile.length,[x,z,yaw,height]=pathAt(induction.routes[inlet],u);
+        box.position.set(x,height,z);box.rotation.y=yaw;
       } else box.visible=false;
     }
   }
   cells.frustumCulled=edges.frustumCulled=false;
   if(site?.distribution)cues.distribute={view:'sorting',focus:spec.feeds.length+1,
-    time:mod(when(spec.right-join[0])-routeLengths[chosen.inlet]/1.2+1.1,cycle)};
+    time:mod(when(spec.right-join[0])-induction.profiles[chosen.inlet].duration+1.1,cycle)};
   if(site)cues.meter={view:'sorting',focus:spec.feeds.length,time:2.6};
-  update(0);return {group,update,loop,loads,cues,induction};
+  const arrivals=loads.map(({box,slot,outlet})=>{
+    const release=loop.straight+loop.arc+spec.chutes[outlet][0][0]-spec.left-speed*phase;
+    return {box,outlet,period:cycle,at:mod((release-slot*loop.length/spec.carts)/speed+phase+4.8,cycle)};
+  });
+  update(0);return {group,update,loop,loads,cues,induction,arrivals};
+}
+
+function flatPlasticPallet(){
+  const model=new T.Group(),b=batch(model);
+  const pp=metal('#527884',.73,.015),grip=metal('#486b76',.86,.01);
+  model.name='N04 平面塑料托盘';
+  b.box(0,.1275,0,1.20,.035,1.00,pp);
+  for(const z of [-.422,0,.422]){
+    b.box(0,.011,z,1.2,.022,.156,pp);
+    for(const x of [-.523,0,.523])b.box(x,.066,z,.154,.088,.156,pp);
+  }
+  for(const z of [-.35,0,.35])b.box(0,.1445,z,.90,.001,.022,grip);
+  b.finish();
+  return model;
 }
 
 function palletPlant(s,scenes) {
   const group=new T.Group(), b=batch(group), wheels=[], movers=[],banks=[];
-  const wooden=fitted(scenes.pallet_a01,1.2,.145,1.0);
+  const emptyPallet=flatPlasticPallet();
   const rollerJoints=measureRollers(scenes.conveyor_belt_a05);
   const lifts=s.transfers.map(([x,z],i)=>{
     const cassette=new T.Group(),bed=batch(cassette);
@@ -169,7 +188,7 @@ function palletPlant(s,scenes) {
       for(const x of [-.39,.39])steelwork.box(x,0,-side*.035,.09,.045,.28,steel);
       steelwork.finish();group.add(jaw);return jaw;
     });
-    const loads=ports.map(()=>wooden.clone(true));group.add(...loads);
+    const loads=ports.map(()=>emptyPallet.clone(true));group.add(...loads);
     movers.push(palletCycle(s,i,{loads,ports,jaws,turntable:table,lifts}));
   }
   s.transfers.forEach((a,i)=>{
@@ -203,7 +222,7 @@ function dockPlant(s) {
     b.box(x,.048,z-d*.5-.14,w,.050,.36,steel);
     for(const side of [-1,1])b.box(x+side*(w/2-.04),.047,z,.065,.012,d,amber);
   }
-  for(const path of s.handoffs) for(let i=1;i<path.length;i++)conveyor(b,path[i-1],path[i],s.deck,s.deck,s.rollerWidth,'roller');
+  for(const path of s.handoffs) for(let i=2;i<path.length;i++)conveyor(b,path[i-1],path[i],s.deck,s.deck,s.rollerWidth,'roller');
   b.finish();return group;
 }
 
@@ -212,10 +231,11 @@ function breakdownTables(spec) {
   for(const {at:[x,z],rotated} of spec.places){
     const [w,d]=rotated?[...spec.size].reverse():spec.size;
     b.box(x,spec.height*.40,z,w,spec.height*.8,d,frame);
-    const cw=w/3,cd=d/3;
+    const [fullW,fullD]=spec.size,cw=(fullW-2*.24)/3,cd=(fullD-2*.13)/3;
+    const at=(u,v)=>rotated?[x-v,spec.height-.035,z+u]:[x+u,spec.height-.035,z+v];
     for(let i=-1;i<=1;i++) for(let j=-1;j<=1;j++){
-      const cx=x+i*cw,cz=z+j*cd;
-      for(let k=-2;k<=2;k++) b.roller([cx-cw*.43,spec.height-.035,cz+k*cd*.17],[cx+cw*.43,spec.height-.035,cz+k*cd*.17],.035);
+      const cx=i*(cw+.24),cz=j*(cd+.13);
+      for(let k=-2;k<=2;k++)b.roller(at(cx-cw*.47,cz+k*cd*.19),at(cx+cw*.47,cz+k*cd*.19),.035);
     }
   }
   b.finish();return group;
@@ -225,6 +245,8 @@ export function createCargoPlant(data,scenes) {
   const sorting=sorterPlant(data.sorter,scenes,data.site),pallet=palletPlant(data.pallet,scenes);
   const dock=dockPlant(data.dock),tables=breakdownTables(data.tables);
   const nearChute=data.sorter.chutes[Math.floor(data.sorter.chutes.length/2)][1];
-  return {sorting,pallet,dock,tables,dockOps:createDockOperations(dock,data.dock,scenes),
+  const chutePacking=createChutePacking(sorting,pallet,data);
+  sorting.cues.stack={view:'chutes',focus:data.sorter.chutes.length,time:chutePacking.firstArrival-.8};
+  return {sorting,pallet,dock,tables,chutePacking,dockOps:createDockOperations(dock,data.dock,scenes),
     packing:createPackingOperations(tables,data.tables,scenes,nearChute)};
 }
