@@ -39,6 +39,18 @@
       "file": "glb/barrier_fence_metal_a02.glb",
       "bytes": 204316,
       "sha256": "821a20d929c3e11d23cc171e638c8e8fc1e7baea207956cc6d929f567c36a25e"
+    },
+    {
+      "id": "pallet_a01",
+      "file": "glb/pallet_a01.glb",
+      "bytes": 248648,
+      "sha256": "a9977de90583cab3604bfc79c44d0203736f31daa42100012c85cb7b32f6b2c4"
+    },
+    {
+      "id": "box_cardboard_a01",
+      "file": "glb/box_cardboard_a01.glb",
+      "bytes": 55852,
+      "sha256": "5032637dc1cca438653782bb0504f3ae5e49346236f711a523aa6df39a1cd3ad"
     }
   ]
 }

@@ -1,29 +1,31 @@
-# A live airport baggage system
+# 货站工艺演示
 
-An airport baggage handling system in 3D, from the check-in desk to the hold of the plane, with scanners, a tilt-tray sorter, chutes, tug trains and a belt loader.
+这个分支的默认入口展示机场货站的物流设备。选取左侧工艺区域，可以观看包裹分拣、滑槽卸载、空托盘输送，以及装卸交接和组板工位。选择「主站房位置对照」查看各组设备的相对位置。
 
-- Post: https://x.com/anxuanng/status/2112964456745763191
-- Made with: Claude Opus 5.5 in Claude Code, the visualize-in-3d skill (https://github.com/codepawl/viz3d), three.js 0.186.1 with React Three Fiber, Blender 5.2
+「图纸叠合」把模型中心线和设备轮廓绘在本地项目图纸上。「工艺原图」显示同一视角的图纸局部。三维视图可以旋转、缩放、定位设备、暂停和调整倍速。动作由本地程序驱动。
 
-## How it was made
-1. A topic and a toy isometric look were chosen. The original prompt was not kept as a file (see prompts.md).
-2. Pass 1 built six Blender GLB packs: bags, conveyors, logistics, ramp, screening and sorter. `design/ASSETS.md` lists each node, its size and its clips. The other notes in `design/` describe the real equipment.
-3. Pass 2 built the app with three sites: the sorter hall, check-in, and make-up and ramp.
-4. A seeded simulation plans every bag analytically (path, scanner, tray, chute) at a fixed 1/60 s step.
-5. The stage views were checked with screenshots (`src/check_stages.mjs`) and the film was recorded with `src/record_film.mjs`. Two scripted passes were needed, not one shot.
+## 运行
 
-## Run it
+以下命令在本作品的 `src` 目录下运行。新电脑需要 Node.js 和本地项目配套 ZIP。解压到 `src`，使 `public/project-layout/layout.json`、同目录的 PNG 和 `public/simready/` 中的模型就位。
+
+```powershell
+npm ci
+npm run assets -- --check
+npm run dev
 ```
-npm --prefix src install
-npm --prefix src run dev        # http://127.0.0.1:5434
-```
-Add `?start=58` to the address to start the simulation at second 58. With the server running, `node src/check_shots.mjs` saves screenshots and `node src/record_film.mjs` records frames. Encode with ffmpeg (`-crf 18 -pix_fmt yuv420p`). To rebuild the models, run `src/blender/gen_assets.py` and the build scripts with Blender 5.2.
 
-## Design
-The simulation routes the bags. It does not play a fixed animation path: each bag gets a planned path through the scanner, a tray and a chute. The sites are the sorter hall (CT, reject line, 46-tray sorter, 7 chutes), check-in (4 desks) and the ramp (carousels, containers, tug trains). See `design/README.md`.
+打开 [本机货站演示](http://127.0.0.1:5426/)。若需重新准备模型，执行 `npm run assets -- --download`，或用 `npm run assets -- "模型库目录"` 从本地带有 `glb` 子目录的资产库复制。准备程序按锁定版本和 SHA-256 校验文件，已校验的文件可以复用。两个演示共用七份模型，货站入口加载其中的纸箱、木托盘和直线滚筒。
 
-## Assets and credits
-All models are procedural Blender scripts made for this project. No external model, texture or sound is used. Left out: rendered film files.
+发布版本在同一目录运行 `npm run build` 和 `npm run preview`，地址和开发版相同。两种启动命令共用同一端口，每次运行一种。打开页面后会显示项目名称。若看到项目资料缺失提示，补齐配套资料后重新加载。
 
-## Prompts
-See prompts.md.
+## 验证和录像
+
+先启动本机服务。在安装了 Playwright Chromium 的环境中运行 `node check_cargo.mjs`，结果和各视图截图写入 `evidence/cargo`。录制演示使用 `node record_cargo.mjs`，需要可从命令行调用 FFmpeg。可以传入一个新 MP4 文件路径。不同连接地址可通过 `AIRPORT_URL` 设置。
+
+设备图纸、坐标、实测结果、截图和影片随本机项目资料交付。源码中的注册、模型显示和回放使用米为单位。施工定位和设备选型以项目正式设计文件为准。
+
+## 来源
+
+货站按项目工艺图建模，借用的纸箱、木托盘和直线滚筒保留原始 GLB。场景对资产做了尺度适配，并驱动滚筒转动。资产由 NVIDIA 制作，CodePawl 转为 GLB，版本和逐文件校验值见 `src/src/simready-assets.json`。[NVIDIA 原始资产](https://huggingface.co/datasets/nvidia/simready-assets) · [CodePawl 转换版本](https://huggingface.co/datasets/codepawl/simready-glb/tree/d529a9403ea062d57b3c0c5d7c01473b0db0beef) · [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+
+原仓库的旅客行李项目仍可通过 [行李演示入口](http://127.0.0.1:5426/?project=bagline) 打开。原作者使用 visualize-in-3d、Three.js、React Three Fiber 和 Blender 制作了值机、分拣和机坪场景，原始设备资料和提示记录见 `design/` 与 `prompts.md`。代码沿用仓库的 MIT 许可。[原作发布记录](https://x.com/anxuanng/status/2112964456745763191) · [visualize-in-3d](https://github.com/codepawl/viz3d) · [代码许可](../../LICENSE)

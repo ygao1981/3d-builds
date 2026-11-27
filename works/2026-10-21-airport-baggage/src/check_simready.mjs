@@ -9,7 +9,8 @@ const requireBrowser = createRequire(path.join(process.env.PLAYWRIGHT_FROM || ap
 const { chromium } = requireBrowser('playwright');
 const dest = path.join(app, 'evidence');
 await mkdir(dest, { recursive: true });
-const base = process.env.AIRPORT_URL || 'http://127.0.0.1:5426/';
+const base = new URL(process.env.AIRPORT_URL || 'http://127.0.0.1:5426/');
+base.searchParams.set('project','bagline');
 const args = process.platform === 'win32' ? ['--enable-gpu', '--use-angle=d3d11'] : [];
 const browser = await chromium.launch({ channel: 'chromium', args });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -19,7 +20,7 @@ page.on('response', r => { if (new URL(r.url()).pathname.endsWith('.glb')) respo
 const report = { responses, errors, views: [] };
 const frame = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 try {
-  await page.goto(base, { waitUntil: 'domcontentloaded' });
+  await page.goto(base.href, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__plant && window.__camera, undefined, { timeout: 90000 });
   await page.getByRole('button', { name: '暂停仿真' }).click();
   await page.waitForFunction(() => window.__sim.state.paused);
@@ -132,7 +133,7 @@ try {
   assert(await page.evaluate(() => document.documentElement.scrollWidth === innerWidth));
   const failure = await browser.newPage();
   await failure.route('**/simready/conveyor_belt_a05.glb', route => route.abort());
-  await failure.goto(base);
+  await failure.goto(base.href);
   await failure.getByRole('alert').getByText('机场三维场景未能打开').waitFor({ timeout: 30000 });
   await failure.unroute('**/simready/conveyor_belt_a05.glb');
   await failure.getByRole('button', { name: '重新加载' }).click();

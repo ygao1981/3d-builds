@@ -13,7 +13,7 @@ const dest = path.join(app, 'evidence');
 await mkdir(dest, { recursive: true });
 const output = path.resolve(process.argv[2] || path.join(dest, 'airport-simready-preview.mp4'));
 const url = new URL(process.env.AIRPORT_URL || 'http://127.0.0.1:5426/');
-url.search = 'capture=1&start=30';
+url.search = 'project=bagline&capture=1&start=30';
 const fps = 30;
 const browser = await chromium.launch({ channel: 'chromium',
   args: process.platform === 'win32' ? ['--enable-gpu', '--use-angle=d3d11'] : [] });
