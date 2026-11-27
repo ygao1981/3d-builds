@@ -1,8 +1,9 @@
 import * as T from 'three';
-import {amber,batch,conveyor,dark,fitted,frame,metal,mod,platform,side,steel} from './hardware.js';
+import {amber,batch,conveyor,dark,fitted,frame,metal,mod,panelSign,platform,side,steel} from './hardware.js';
 import {apronTrain} from './floor-operations.js';
 import {board,carton,forkTruck,operator,palletBase} from './workcells.js';
 import {walkingRoute} from './worker.js';
+import {createInboundWork} from './inbound-work.js';
 
 const roof=metal('#bac5c5',.70,.26),column=metal('#819b9c',.65,.38),concrete=metal('#a0aaa5',.95,.02);
 const windows=metal('#506f73',.38,.32),finish=metal('#c6d0c9',.87,.04),rubber=metal('#354346',.92,.04);
@@ -208,8 +209,51 @@ function specialLoads(b,key){
 }
 const woodCrate=metal('#ad8e66',.91,.03);
 
+function floorWeighing(fixed,goods,scales,assets){
+  if(!scales?.length)return null;
+  const b=batch(fixed),active=Math.floor(scales.length/2),[x,z]=scales[active];
+  const words=['待称','称重中','可取货'],activeScreens=[];
+  scales.forEach(([cx,cz],i)=>{
+    const px=cx-2.32,pz=cz+1.30;
+    b.box(px,.59,pz,.095,1.18,.095,frame);
+    b.box(px,.04,pz,.32,.08,.32,steel);b.box(px,1.29,pz,.77,.41,.18,side);
+    b.box(px,.86,pz+.17,.58,.055,.42,steel);
+    b.box(px,.97,pz+.20,.43,.17,.31,finish);
+    b.box(px,.99,pz+.363,.32,.032,.012,dark);
+    b.box(px,.964,pz+.393,.27,.012,.068,finish);
+    for(const dx of [-1,0,1])for(const dz of [-1,1])b.box(cx+dx*1.7,.025,cz+dz*1.83,.09,.018,.09,steel);
+    for(const text of i===active?words:['待称']){
+      const face=panelSign(text,.68);face.position.set(px,1.29,pz+.095);fixed.add(face);
+      if(i===active){face.visible=text==='待称';activeScreens.push(face);}
+    }
+  });
+  b.finish();
+  const forklift=forkTruck(assets),load=new T.Group(),lot=batch(load);
+  palletBase(lot,0,0,0,1.22,1.04);
+  for(let level=0;level<2;level++)for(const side of [-1,1])
+    carton(lot,0,.142+level*.425,side*.252,1.10,.419,.49,level);
+  lot.finish();goods.add(forklift,load);
+  const deckTop=.021,travelHeight=.18;
+  let status=0;
+  function setStatus(index){status=index;activeScreens.forEach((m,i)=>{m.visible=i===index;});}
+  function update(t){
+    const phase=mod(t,32),arrival=smooth(phase,0,5),depart=smooth(phase,26,32);
+    const distance=4*(1-arrival+depart);
+    const settled=smooth(phase,5,8)-smooth(phase,23,26);
+    const y=T.MathUtils.lerp(travelHeight,deckTop,settled);
+    const retreat=smooth(phase,9,13)-smooth(phase,19,22);
+    const forkClear=smooth(phase,8,9)-smooth(phase,22,23);
+    load.position.set(x,y,z-distance);
+    forklift.position.set(x,0,z-distance-1.94-4*retreat);
+    forklift.userData.setForkHeight(y+.1065-.035*forkClear);
+    const index=phase>=13 && phase<16?1:phase>=16 && phase<19?2:0;
+    if(index!==status)setStatus(index);
+  }
+  return {load,forklift,update,idle:()=>setStatus(0),get status(){return words[status];}};
+}
+
 // The mobile inventory depicts one batch on each named apron; it can be hidden independently of surveyed equipment.
-export function createFreightOperations(hall,site,receipts,assets){
+export function createFreightOperations(hall,site,receipts,assets,views){
   const info=site.freight, fixed=new T.Group(), goods=new T.Group(),canopy=new T.Group(),studio=new T.Group();
   fixed.name='全流程固定设施';goods.name='周转货载示例';canopy.name='空侧作业棚剖面';
   hall.add(fixed,goods);fixed.add(canopy);canopyStructure(canopy,info.canopy);
@@ -219,6 +263,7 @@ export function createFreightOperations(hall,site,receipts,assets){
   for(const [a,c] of [[left,oldLeft],[oldRight,right]])b.box((a+c)/2,-.15,(oldBack+front)/2,c-a,.27,oldBack-front,concrete);
   info.wings.forEach(w=>ancillary(b,w));
   const manual=manualOutlets(fixed,info.manual,receipts);
+  const floorWeigh=floorWeighing(fixed,goods,site.floorScales,assets);
   const [ix,iz]=nodes.inbound.at,[tx,tz]=nodes.transfer.at;
   dolly(loads,ix-4,iz-.9,3);
   const handlers=[breakdown(goods,loads,ix,iz-.9,assets,0),breakdown(goods,loads,tx+2.5,tz,assets,4)];
@@ -245,14 +290,7 @@ export function createFreightOperations(hall,site,receipts,assets){
     if(i%4!==0 || turned)return;
     carton(loads,x,.518,z,.86,.42,.78,i%3);
   });
-  const [wx,wz]=nodes.inWork.at;
-  // A representative receiving and sorting table, contained in its named operations area.
-  for(const dx of [-2.15,1.45]){
-    conveyor(b,[wx+dx,wz-4.2],[wx+dx,wz-1.35],.80,.80,1.05,'roller');
-    b.box(wx+dx,.47,wz,.98,.84,2.72,side);b.box(wx+dx,1.42,wz,1.44,1.18,2.68,finish);
-    for(const z of [wz-1.36,wz+1.36])b.box(wx+dx,1.17,z,1.05,.73,.033,dark);
-    conveyor(b,[wx+dx,wz+1.36],[wx+dx,wz+3.8],.80,.80,1.05,'roller');
-  }
+  const inboundWork=nodes.inWork && createInboundWork(fixed,goods,nodes.inWork.at,assets,views.find(n=>n.key==='inOnline'));
   const [px,pz]=nodes.pickup.at;
   const lift=forkTruck(assets),carried=new T.Group(),load=batch(carried);
   palletBase(load,0,0,0,1.2,1.0);carton(load,0,.145,0,1.11,.56,.90);load.finish();goods.add(lift,carried);
@@ -269,6 +307,8 @@ export function createFreightOperations(hall,site,receipts,assets){
   }
   b.finish();loads.finish();studio.visible=false;
   function update(t){
+    floorWeigh?.update(t);
+    inboundWork?.update(t);
     for(const handler of handlers)handler.update(t);
     const crossing=mod(t,32);
     weigh.position.set(sx,.025,sz+8*(1-smooth(crossing,0,10))-8*smooth(crossing,19,29));
@@ -288,6 +328,10 @@ export function createFreightOperations(hall,site,receipts,assets){
     for(const room of rooms.values())room.visible=room===selected;
     canopy.visible=isHall && (!node?.key || node.key==='canopy');
   }
+  function setBatchVisible(visible){
+    goods.visible=visible;
+    if(!visible)floorWeigh?.idle();
+  }
   update(0);
-  return {goods,canopy,fixed,studio,manual,nodes,rooms,carried,lift,weigh,handlers,setView,update};
+  return {goods,canopy,fixed,studio,manual,nodes,rooms,carried,lift,weigh,handlers,inboundWork,floorWeigh,setBatchVisible,setView,update};
 }

@@ -255,7 +255,7 @@ export function createChutePacking(sorting,pallet,data,workerModel){
   return {group,worker,update,firstArrival,port,candidates,destination};
 }
 
-export function createPackingOperations(group,s,assets,nearChute){
+export function createPackingOperations(group,s,assets,nearChute,inboundTables=[]){
   const b=batch(group);
   const world=(p)=>[p.at[0]+s.offset[0],p.at[1]+s.offset[1]];
   const active=s.places.reduce((best,p,i)=>{
@@ -264,6 +264,7 @@ export function createPackingOperations(group,s,assets,nearChute){
   },0);
   const [ax,az]=s.places[active].at;
   s.places.forEach(({at:[x,z],rotated},i)=>{
+    if(inboundTables.includes(i))return;
     const [w,d]=rotated?[...s.size].reverse():s.size;
     if(i===active){
       b.box(x,s.height+.025,z,w*.92,.05,d*.92,steel);

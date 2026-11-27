@@ -64,7 +64,7 @@ try{
     const rackPosts=rackParts.filter(p=>near(p.size,[.12,3.20,.12]));
     return {steel,cars,outlets,workers,pickup,moved,sand,weightIn,stable,departed,scale:c.data.site.reweigh[0],
       span:info.canopy.front-info.canopy.back,eave:info.canopy.eave-info.canopy.front,rackPosts:rackPosts.length,
-      main:h.group.visible && f.canopy.visible && !f.studio.visible,items:info.nodes.map(n=>({key:n.key,label:n.label,independent:!!n.independent}))};
+      main:h.group.visible && f.canopy.visible && !f.studio.visible,items:c.nav.overview.filter(n=>n.key).map(n=>({key:n.key,label:n.label,independent:!!n.independent}))};
   });
   report.geometry=geometry;
   assert.equal(geometry.steel,12);assert.equal(geometry.cars,2);assert.equal(geometry.rackPosts,4);
@@ -79,7 +79,7 @@ try{
   assert(geometry.moved[1]>geometry.pickup[1]+.12 && geometry.moved[2]<geometry.pickup[2]-3);
   assert.deepEqual(geometry.weightIn,geometry.stable);
   assert(Math.abs(geometry.weightIn[2]-geometry.scale[1])<.001 && geometry.sand[2]-geometry.weightIn[2]>3 && geometry.departed[2]<geometry.weightIn[2]-6);
-  const batch=page.getByRole('checkbox',{name:'场坪周转货载示例'});
+  const batch=page.getByRole('checkbox',{name:'周转作业示例'});
   await batch.uncheck();await frames();
   assert(await page.evaluate(()=>{const f=window.__cargo.hall.freight;return !f.goods.visible && f.fixed.visible && f.canopy.visible;}));
   await batch.check();await shot('全场物流');
@@ -113,12 +113,13 @@ try{
     report.workfaces.push(item.label);
   }
   await page.getByRole('button',{name:'回到全场'}).click();
-  const cases=[['跨境电商出港'],['国际快件出港','常规快件'],['国际快件出港','超大超重货物'],['国际快件进港'],
+  const cases=[['跨境电商出港'],['国际快件出港','常规快件'],['国际快件出港','超大超重货物'],
+    ...['常规放行','复核后放行','暂扣待处理'].map(v=>['国际快件进港',v]),
     ['中转货物','国内转国际'],['中转货物','国际转国内'],...['中心内中转','国际货站调入','调往国际货站'].map(v=>['中转货物','国际转国际',v])];
   for(const [flow,sub,allocation] of cases){
     await page.getByRole('button',{name:'主站房全景',exact:false}).first().click();
     await select('业务流程').selectOption(flow);
-    if(sub)await select(flow==='中转货物'?'中转方向':'货物类型').selectOption(sub);
+    if(sub)await select(flow==='中转货物'?'中转方向':flow==='国际快件进港'?'进港处理结果':'货物类型').selectOption(sub);
     if(allocation)await select('调拨方式').selectOption(allocation);
     const steps=page.locator('.cargo-flow-steps button'),labels=(await steps.allTextContents()).map(s=>s.replace('→','').trim());
     assert(labels.length>=4);

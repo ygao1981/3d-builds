@@ -81,7 +81,7 @@ function servicePlatform(b,outline){
     for(const lift of [.53,.99])b.beam([x,lift,zTop-run],[x,h+lift,zTop],.044,.044,ochre);
   }
 }
-export function createHall(data,assets,texture,furniture){
+export function createHall(data,assets,texture,furniture,workViews=[]){
   const group=new T.Group(),b=batch(group),[[x0,z0],[x1,z1]]=workingBounds(data),w=x1-x0,d=z1-z0;
   const mx=(x1+x0)/2,floor=data.site?.floorOperations,wallEnd=floor?.hallEnd??z1;
   const dockUpper=new T.Group(),upper=batch(dockUpper);group.add(dockUpper);
@@ -236,7 +236,7 @@ export function createHall(data,assets,texture,furniture){
     data.site?[fitReceipt(group,data.site.receipt,assets)]:[];
   const additionalReceipts=(floor?.receipts||[]).map(({at,extension},i)=>fitReceipt(group,at,assets,extension,i+3,dockZ,false));
   const operations=floor?createFloorOperations(group,b,floor,data.site.bounds):null;
-  const freight=data.site?.freight?createFreightOperations(group,data.site,additionalReceipts,assets):null;
+  const freight=data.site?.freight?createFreightOperations(group,data.site,additionalReceipts,assets,workViews):null;
   const serviceDeck=new T.Group();
   if(equipment?.serviceDeck){
     const platform=batch(serviceDeck);servicePlatform(platform,equipment.serviceDeck);

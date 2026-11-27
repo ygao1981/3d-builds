@@ -8,6 +8,8 @@ import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import {createHall} from './hall.js';
+import {hallWorkViews,inboundDescription} from './inbound-work.js';
+import {floorUse} from './floor-operations.js';
 import { createCargoPlant } from './plant.js';
 import manifest from '../simready-assets.json';
 import workerAsset from './worker-asset.json';
@@ -63,7 +65,7 @@ function traces(data,plant) {
 }
 
 // All navigation targets come from the locally registered plan.
-export function targets(data,inspection,packing) {
+export function targets(data,inspection,packing,workViews=hallWorkViews(data)) {
   const sort=data.sorter, p=data.pallet, d=data.dock;
   const eq=data.site?.distributionEquipment;
   const floor=data.site?.floorOperations;
@@ -89,11 +91,12 @@ export function targets(data,inspection,packing) {
       {label:'AGV 暂存工位',at:floor.agv.at,width:26,depth:18,az:-.24},
       {label:'待运区与复重秤',at:floor.apronFocus,width:92,depth:34,az:.12},
       {label:'利旧作业平台',at:middle(...floor.existing.deck),width:19,depth:33,az:.68}
-    ]:[]),...(inspection?[inspection.target]:[]),...(data.site?.freight?.nodes||[])],
+    ]:[]),...(inspection?[inspection.target]:[]),...(data.site?.freight?.nodes||[]).map(n=>n.key==='inWork'?
+      {...n,width:31,depth:54,height:3,az:.14,elevation:.85,note:inboundDescription}:n),...workViews],
   };
 }
 
-export async function openCargo(canvas, onStatus) {
+export async function openCargo(canvas,onStatus,onFreeBrowse=()=>{}) {
   const response=await fetch(rootUrl+'layout.json',{cache:'no-store'});
   if(!response.ok || !response.headers.get('content-type')?.includes('json')) throw new Error('本机尚未配置项目工艺图纸，请载入本项目的布局资料后重试。');
   const data=await response.json();
@@ -130,10 +133,12 @@ export async function openCargo(canvas, onStatus) {
   }catch(error){
     console.warn('货站人物模型加载失败',error);
   }finally{texturesLoader.dispose();}
-  const plant=createCargoPlant(data,models);
+  const workViews=hallWorkViews(data);
+  const inboundTables=workViews.find(n=>n.key==='inOnline')?.tables.map(t=>t.index);
+  const plant=createCargoPlant(data,models,inboundTables);
   const offsets={sorting:[0,0],pallet:data.pallet.offset,dock:data.dockOffset,tables:data.tables.offset,hall:[0,0]};
   const meshes={sorting:plant.sorting.group,pallet:plant.pallet.group,dock:plant.dock,tables:plant.tables};
-  const hall=createHall(data,models,markings,furniture);
+  const hall=createHall(data,models,markings,furniture,workViews);
   scene.add(hall.group);
   if(hall.freight)scene.add(hall.freight.studio);
   const drawings={},lines=traces(data,plant);
@@ -154,12 +159,12 @@ export async function openCargo(canvas, onStatus) {
   ctrl.maxDistance=420;ctrl.maxPolarAngle=Math.PI*.484;ctrl.enablePan=true;ctrl.target.set(0,0,0);
   let page='overview', key=page, layer='both', mode='3d', focus=-1;
   let camera=perspective, time=21, paused=false, speed=1, disposed=false, last, frameId;
-  const nav=targets(data,hall.inspection,plant.packing);
+  const nav=targets(data,hall.inspection,plant.packing,workViews);
   plant.packing.cues.build.focus=nav.tables.length-1;
   const inspectionCue=hall.inspection && {view:'overview',focus:nav.overview.indexOf(hall.inspection.target),time:hall.inspection.time};
   const inOverview=()=>page==='overview' && mode==='3d';
   const keys=new Set(),step=new T.Vector3(),eyeFloor=.25;
-  let overviewPose=null,overviewMoved=false,gesture=false;
+  let overviewPose=null,overviewMoved=false,gesture=false,freeBrowse=false;
   ctrl.addEventListener('start',()=>{gesture=inOverview();});
   ctrl.addEventListener('change',()=>{if(gesture)overviewMoved=true;});
   ctrl.addEventListener('end',()=>{gesture=false;});
@@ -285,7 +290,6 @@ export async function openCargo(canvas, onStatus) {
     hall.group.visible=view3d && !isolated;hall.overhead.visible=k==='overview' && focus===0;hall.dockUpper.visible=k!=='dock' && selected?.key!=='dispatch';
     hall.serviceDeck.visible=k!=='pallet';
     plant.chutePacking.group.visible=meshes.sorting.visible && meshes.pallet.visible;
-    if(hall.operations)hall.operations.lettering.visible=k==='overview' && (focus<1 || focus===4);
     scene.background.set(view3d?'#a9bab9':'#f2f4f1');
     if(keepPose)return focus;
     camera=mode==='3d'?perspective:ortho;ctrl.object=camera;ctrl.enableRotate=mode==='3d';
@@ -337,7 +341,9 @@ export async function openCargo(canvas, onStatus) {
     const refit=inOverview()?(!overviewMoved && change>.0001):change>.15;
     if(refit)show(page,mode,focus,layer);else resize();
   });observer.observe(canvas);
-  const tags=new Map();
+  const tags=new Map(),localTags=new Set(['inReview','inOnline','inHolding']);
+  const lastEye=new T.Matrix4(),lastProjection=new T.Matrix4();
+  let tagsDirty=true,lastWidth=0,lastHeight=0,lastTagFocus,lastBrowse;
   const labels={
     ...(hall.inspection?{inspection:[...hall.inspection.target.at,2.35]}:{}),
     dock:[...data.dock.levellers[plant.dockOps.active].at.map((n,i)=>n+offsets.dock[i]),5.0],
@@ -349,15 +355,52 @@ export async function openCargo(canvas, onStatus) {
       apron:[...nav.overview[4].at,1.2],legacy:[...nav.overview[5].at,.56]}:{}),
   };
   const packingLabel=plant.packing.active;
-  if(hall.freight)for(const id of ['manual','inbound','transfer'])labels[id]=[...hall.freight.nodes[id].at,.9];
+  if(hall.freight)for(const station of nav.overview){
+    if(station.key && !station.independent)labels[station.key]=[...station.at,1.1];
+  }
   labels.tables=[...data.tables.places[packingLabel].at.map((n,i)=>n+offsets.tables[i]),2.1];
   const tagPoint=new T.Vector3();
-  function tag(key,element){if(element)tags.set(key,element);else tags.delete(key);}
+  const pickRay=new T.Raycaster(),floorPlane=new T.Plane(new T.Vector3(0,1,0),0);
+  function inspectFloor(clientX,clientY){
+    if(!inOverview() || !hall.freight || !hall.group.visible)return null;
+    const r=canvas.getBoundingClientRect();
+    pickRay.setFromCamera({x:2*(clientX-r.left)/r.width-1,y:1-2*(clientY-r.top)/r.height},camera);
+    const ground=pickRay.ray.intersectPlane(floorPlane,new T.Vector3());
+    if(!ground)return null;
+    const [[left,front],[right,back]]=hall.bounds;
+    if(ground.x<left || ground.x>right || ground.z<front || ground.z>back)return null;
+    return floorUse(data,ground.x,ground.z);
+  }
+  function tag(key,element){if(element)tags.set(key,element);else tags.delete(key);tagsDirty=true;}
+  function updateOverviewLabels(){
+    const selected=nav.overview[focus],hallView=inOverview() && !selected?.independent;
+    let browsing=false,wide=false;
+    if(hallView && selected?.at && overviewMoved){
+      const span=2*ctrl.getDistance()*Math.tan(T.MathUtils.degToRad(perspective.fov/2))*Math.max(1,perspective.aspect);
+      const shifted=Math.hypot(ctrl.target.x-selected.at[0],ctrl.target.z-selected.at[1]);
+      wide=span>Math.max(68,Math.max(selected.width,selected.depth)*1.7);
+      browsing=wide || shifted>Math.max(7,Math.min(selected.width,selected.depth)*.7);
+    }
+    if(browsing!==freeBrowse){freeBrowse=browsing;onFreeBrowse(browsing);}
+    if(hall.operations)hall.operations.lettering.visible=hallView && (focus<1 || focus===4 || browsing);
+    const building=hallView && (focus===0 || wide && perspective.position.y>20);
+    hall.overhead.visible=building;
+    if(hall.freight)hall.freight.canopy.visible=building || hallView && selected?.key==='canopy';
+  }
   function positionTags(){
     if(key!=='overview' || mode!=='3d' || !tags.size)return;
     const {clientWidth:w,clientHeight:h}=canvas,placed=[];
+    if(!tagsDirty && w===lastWidth && h===lastHeight && focus===lastTagFocus && freeBrowse===lastBrowse &&
+      lastEye.equals(camera.matrixWorld) && lastProjection.equals(camera.projectionMatrix))return;
+    tagsDirty=false;lastWidth=w;lastHeight=h;lastTagFocus=focus;lastBrowse=freeBrowse;
+    lastEye.copy(camera.matrixWorld);lastProjection.copy(camera.projectionMatrix);
+    const selected=nav.overview[focus]?.key;
     for(const [id,node] of tags){
       const anchor=labels[id];if(!anchor)continue;
+      const local=localTags.has(id);
+      if(local?(selected!=='inWork' || freeBrowse):selected && !freeBrowse){
+        node.style.visibility='hidden';continue;
+      }
       tagPoint.set(anchor[0],anchor[2],anchor[1]).project(camera);
       const x=(1+tagPoint.x)*w/2,y=(1-tagPoint.y)*h/2;
       const width=node.offsetWidth,height=node.offsetHeight;
@@ -395,12 +438,16 @@ export async function openCargo(canvas, onStatus) {
       const near=Math.max(.045,Math.min(ctrl.getDistance()/135,perspective.position.y/30));
       if(Math.abs(near-perspective.near)>near*.015){perspective.near=near;perspective.updateProjectionMatrix();}
     }
+    updateOverviewLabels();
     if(mode==='3d' && hall.operations?.lettering.visible)
       hall.operations.orientLabels(camera,ctrl.getAzimuthalAngle(),Math.cos(ctrl.getPolarAngle()),canvas.clientHeight);
     renderer.render(scene,camera);positionTags();frameId=requestAnimationFrame(render);
   }
-  show('overview','3d',data.site?.floorOperations?0:-1);frameId=requestAnimationFrame(render);
-  return {data,plant,hall,renderer,nav,show,tag,packingLabel,inspectionCue,missingWorker:!models.worker,missingCartons:cargoModels.filter(m=>m.id.startsWith('box_cardboard_') && !models[m.id]).length,get time(){return time;}, get view(){return page;},get mode(){return mode;},
+  const requested=new URLSearchParams(location.search).get('station');
+  const match=requested?nav.overview.findIndex(n=>n.key===requested):-1;
+  const initialFocus=match>=0?match:data.site?.floorOperations?0:-1;
+  show('overview','3d',initialFocus);frameId=requestAnimationFrame(render);
+  return {data,plant,hall,renderer,nav,show,tag,inspectFloor,initialFocus,packingLabel,inspectionCue,missingWorker:!models.worker,missingCartons:cargoModels.filter(m=>m.id.startsWith('box_cardboard_') && !models[m.id]).length,get time(){return time;}, get view(){return page;},get mode(){return mode;},
     setPaused(v){paused=v;},setSpeed(v){speed=v;},seek(t){time=t;},getCamera(){return camera;},getTarget(){return ctrl.target.clone();},
     dispose(){disposed=true;cancelAnimationFrame(frameId);observer.disconnect();ctrl.dispose();
       canvas.removeEventListener('keydown',keyDown);canvas.removeEventListener('keyup',keyUp);

@@ -110,6 +110,45 @@ export function apronTrain(b,{tractor:[tx,z],dollies}){
     wheels(x,cz,w-.25,2.45);tail=x+length/2;
   }
 }
+export function insideFloor(outline,x,z){
+  let inside=false;
+  for(let i=0,j=outline.length-1;i<outline.length;j=i++){
+    const [ax,az]=outline[i],[bx,bz]=outline[j];
+    if((az>z)!==(bz>z) && x<(bx-ax)*(z-az)/(bz-az)+ax)inside=!inside;
+  }
+  return inside;
+}
+
+// Interpret surveyed commercial floor markings. Unclassified floor has no inferred use.
+export function floorUse(data,x,z){
+  const site=data.site,f=site.floorOperations;
+  const hit=([cx,cz],w,d)=>Math.abs(x-cx)<=w/2 && Math.abs(z-cz)<=d/2;
+  if(f.workAreas?.some(poly=>insideFloor(poly,x,z)))
+    return ['进港快件作业区','用于进港快件及物品查验、上线交接、暂扣和超期暂存。'];
+  if(site.floorScales?.some(p=>hit(p,4,4)))return ['收货电子地磅','整托落在秤面上，叉车退出后称货。'];
+  if(site.reweigh?.some(p=>hit(p,4,8)))return ['整板复重','装载集装板的拖斗在这里复重，再进入相应待运区。'];
+  if(f.tracks.some(t=>Math.abs(x-t.start[0])<=t.gauge/2 && z>=Math.min(t.start[1],t.end[1]) && z<=Math.max(t.start[1],t.end[1])))
+    return ['整板交接地轨','地轨从交接辊道延伸至场坪。'];
+  const [[left,front],[right,back]]=f.existing.deck;
+  if(x>=left && x<=right && z>=front && z<=back)return ['利旧作业平台','平台承接整板货物的移动和周转。'];
+  if(data.dock.levellers.some(p=>hit(p.at.map((v,i)=>v+data.dockOffset[i]),...data.dock.levelSize)))
+    return ['装卸月台','调平台在站房地面与车厢之间交接货物。'];
+  const bay=f.apronBays.find(p=>insideFloor(p.outline,x,z));
+  if(bay){
+    const node=site.freight.nodes.find(n=>['inbound','transfer','crossWait','expressWait'].includes(n.key) && insideFloor(bay.outline,...n.at));
+    if(node)return [node.label,node.note];
+    return ['空侧作业棚','棚下保留货物交接和车辆周转空间。'];
+  }
+  const sorter=data.sorter;
+  if(x>=sorter.left-sorter.radius && x<=sorter.right+sorter.radius && Math.abs(z)<=sorter.radius)
+    return ['分拣与空托盘','上层为交叉带环线，下层向格口输送空托盘。可在分拣页面切换设备层。'];
+  if(data.tables.places.some(p=>hit(p.at.map((v,i)=>v+data.tables.offset[i]),...(p.rotated?[...data.tables.size].reverse():data.tables.size))))
+    return ['移动打板台','按图定位的理货、组板台位。'];
+  if(site.staging.some(p=>hit(p.at,...p.size)))return ['图示货位','图纸给出了货位范围，现场货量随批次变化。'];
+  if(site.packingZones?.some(poly=>insideFloor(poly,x,z)))return ['理货与组板作业面','区域内分布作业台和货位，台间保留搬运空间。'];
+  return ['地面用途待对图确认','该点没有可单独识别的作业区记录，可切换「图纸叠合」查看地面线条。'];
+}
+
 function groundLabel(parent,{text,at:[x,z],width}){
   const c=document.createElement('canvas');c.width=640;c.height=128;
   const ctx=c.getContext('2d');ctx.textAlign='center';ctx.textBaseline='middle';
