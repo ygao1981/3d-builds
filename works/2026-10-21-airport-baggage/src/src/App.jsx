@@ -26,11 +26,8 @@ installPlaybackInput();
 
 export default function App() {
   return (
-    <>
-      <div className="viewport">
-        <Scene />
-      </div>
-      <Dashboard />
-    </>
+    <Dashboard>
+      <Scene />
+    </Dashboard>
   );
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { AIRPORT, sim } from '../appContext.js';
 import { getState, setState, useStore } from '../store.js';
-import { computeKpis, describeBag, describeUnit, formatClock, SITES, statusLabel, TIMELINE_STEPS, unitPins } from '../model.js';
+import { computeKpis, describeBag, describeUnit, flightLabel, flightSearchText, formatClock, SITES, statusLabel, TIMELINE_STEPS, unitPins } from '../model.js';
 import { FLIGHTS } from '../sim/simulation.js';
 import { pinRegistry } from '../pins.js';
 import { FOLLOW_DISTANCES, plantRef, resetView, rig, selectBag, selectUnit, startFollow, stopFollow, switchSite, zoomBy } from '../runtime.js';
@@ -10,6 +10,8 @@ import { STAGES, bagStageAt } from '../stages.js';
 import { SPEED_STEPS } from '../sim/simulation.js';
 import { nextStage, pickStage, previousStage, setSlowAtEvents, setSpeed, startTour, stepOnce, stopTour, togglePause } from '../playback.js';
 import { Icon, Logo, StatusIcon } from './icons.jsx';
+import Inspection from './Inspection.jsx';
+import { DEFAULT_STATION, inspectStation, STATIONS } from '../stations.js';
 
 // Re-render the dashboard a few times per simulated second, driven by the same clock as the 3D view.
 function useSimulationTick(intervalSeconds = 0.25) {
@@ -37,13 +39,21 @@ function TopBar() {
       <div className="brand">
         <Logo />
         <div className="brand-text">
-          <strong>Bagline</strong>
-          <span>{AIRPORT.name} ({AIRPORT.code})</span>
+          <h1>行李运行监控</h1>
+          <span>{AIRPORT.name}（{AIRPORT.code}）</span>
         </div>
       </div>
-      <nav className="site-switcher" aria-label="Sites">
+      <nav className="site-switcher" aria-label="场景">
         {SITES.map((site) => (
-          <button key={site.id} type="button" className={`quiet-button${site.id === siteId ? ' active' : ''}`} data-site={site.id} onClick={() => switchSite(site.id)}>
+          <button
+            key={site.id}
+            type="button"
+            className={`quiet-button${site.id === siteId ? ' active' : ''}`}
+            data-site={site.id}
+            title={site.name}
+            aria-pressed={siteId === site.id}
+            onClick={() => switchSite(site.id)}
+          >
             {site.short}
           </button>
         ))}
@@ -52,22 +62,19 @@ function TopBar() {
         <Icon name="magnifier" size={16} />
         <input
           type="search"
-          placeholder="Search bag tag, flight or destination"
+          aria-label="搜索行李牌号、航班或目的地"
+          placeholder="行李牌号、航班或目的地"
           value={search}
           onChange={(event) => setState({ search: event.target.value, tab: event.target.value ? 'bags' : getState().tab })}
         />
       </label>
-      <div className="clock tabular" title="Local time">
+      <div className="clock tabular" title="机场仿真时间">
         <Icon name="clock" size={16} />
+        <span className="clock-label">仿真</span>
         <span id="live-clock">{formatClock(AIRPORT.clockStart + sim.time)}</span>
       </div>
-      <div className="user">
-        <span className="avatar"><Icon name="user" size={16} /></span>
-        <div>
-          <strong>R. Hale</strong>
-          <span>Shift lead</span>
-        </div>
-      </div>
+      <button type="button" className="quiet-button back-to-inspection"
+        onClick={() => inspectStation(STATIONS.find(station => station.id === getState().stationId) || DEFAULT_STATION, true)}>返回工艺巡览</button>
     </header>
   );
 }
@@ -76,7 +83,7 @@ function KpiCards() {
   const kpis = computeKpis(sim);
   const icons = { rate: 'bag', read: 'tag', loaded: 'plane', mishandled: 'alert' };
   return (
-    <section className="kpi-grid" aria-label="Key figures">
+    <section className="kpi-grid" aria-label="运行指标">
       {kpis.map((kpi) => (
         <article key={kpi.id} className="card kpi">
           <div className="kpi-label"><Icon name={icons[kpi.id]} size={16} /><span>{kpi.label}</span></div>
@@ -92,39 +99,33 @@ function KpiCards() {
 }
 
 // Which stage the selected thing is in and how long it has been there.
-function StageRow({ selection, description }) {
-  if (selection.kind === 'bag') {
-    const { index, since } = bagStageAt(sim.planById(selection.planId), sim.time);
-    return (
-      <div className="stage-row tabular" data-stage-row>
-        <Icon name="scan" size={16} />
-        <span>Stage {STAGES[index].key} of {STAGES.length}: {STAGES[index].name}</span>
-        <span className="stage-since">{since.toFixed(0)} s in it</span>
-      </div>
-    );
-  }
-  const stageIndex = STAGES.findIndex((stage) => stage.unitId === selection.unitId);
-  if (stageIndex < 0) return null;
+function StageRow({ selection }) {
+  const bagStage = selection.kind === 'bag' ? bagStageAt(sim.planById(selection.planId), sim.time) : null;
+  const stage = bagStage ? STAGES[bagStage.index] : STAGES.find((item) => item.unitId === selection.unitId);
+  if (!stage) return null;
   return (
-    <div className="stage-row" data-stage-row>
+    <div className="stage-row tabular" data-stage-row>
       <Icon name="scan" size={16} />
-      <span>Stage {STAGES[stageIndex].key} of {STAGES.length}: {STAGES[stageIndex].name}</span>
+      <span>第 {stage.key} / {STAGES.length} 步 <span className="stage-name">{stage.name}</span></span>
+      {bagStage && <span className="stage-since">已停留 {bagStage.since.toFixed(0)} 秒</span>}
     </div>
   );
 }
+
+const FOLLOW_LABELS = { close: '近景', mid: '中景', wide: '远景' };
 
 function FollowControls() {
   const following = useStore((state) => state.following);
   const distance = useStore((state) => state.followDistance);
   return (
-    <div className="follow-controls" aria-label="Follow">
-      <button type="button" className={`quiet-button${following ? ' active' : ''}`} data-follow="toggle" onClick={() => (following ? stopFollow() : startFollow(distance))}>
+    <div className="follow-controls" role="group" aria-label="跟随视角">
+      <button type="button" className={`quiet-button${following ? ' active' : ''}`} data-follow="toggle" aria-pressed={following} onClick={() => (following ? stopFollow() : startFollow(distance))}>
         <Icon name={following ? 'scan' : 'ring'} size={16} />
-        <span>Follow</span>
+        <span>跟随</span>
       </button>
       {Object.keys(FOLLOW_DISTANCES).map((name) => (
-        <button key={name} type="button" className={`quiet-button${following && distance === name ? ' active' : ''}`} data-follow={name} onClick={() => startFollow(name)}>
-          {name[0].toUpperCase() + name.slice(1)}
+        <button key={name} type="button" className={`quiet-button${following && distance === name ? ' active' : ''}`} data-follow={name} aria-pressed={following && distance === name} onClick={() => startFollow(name)}>
+          {FOLLOW_LABELS[name]}
         </button>
       ))}
     </div>
@@ -143,7 +144,7 @@ function DetailCard() {
     description = describeUnit(sim, selection.unitId);
   }
   return (
-    <aside className="card detail-card" aria-label="Details">
+    <aside className="card detail-card" aria-label="详情" tabIndex={0}>
       <div className="detail-head">
         <span className="detail-icon"><Icon name={selection.kind === 'bag' ? 'bag' : 'site'} size={22} /></span>
         <div>
@@ -155,12 +156,12 @@ function DetailCard() {
         <StatusIcon status={description.status} size={20} />
         <strong>{description.statusText}</strong>
       </div>
-      <StageRow selection={selection} description={description} />
+      <StageRow selection={selection} />
       <FollowControls />
-      <div className="progress-block">
+      {Number.isFinite(description.progress) && <div className="progress-block">
         <div className="progress-label"><span>{description.progressLabel}</span><span className="tabular">{Math.round(description.progress * 100)}%</span></div>
         <div className="progress-track"><div className="progress-fill" style={{ width: `${Math.round(description.progress * 100)}%` }} /></div>
-      </div>
+      </div>}
       <dl className="fields">
         {description.fields.map(([label, value]) => (
           <div key={label} className="field">
@@ -179,31 +180,31 @@ function PlaybackControls() {
   const slowed = useStore((state) => state.slowed);
   const slowAtEvents = useStore((state) => state.slowAtEvents);
   const status = paused
-    ? { icon: 'pause', text: 'Paused', tone: 'paused' }
+    ? { icon: 'pause', text: '已暂停', tone: 'paused' }
     : slowed
-      ? { icon: 'hourglass', text: 'Slowed at event', tone: 'slowed' }
-      : { icon: 'play', text: `Playing at ${speed}x`, tone: 'playing' };
+      ? { icon: 'hourglass', text: '关键动作慢放中', tone: 'slowed' }
+      : { icon: 'play', text: `${speed} 倍速播放中`, tone: 'playing' };
   return (
-    <div className="playback" data-keeps-tour aria-label="Playback">
+    <div className="playback" role="group" data-keeps-tour aria-label="仿真播放">
       <span className={`playback-state ${status.tone}`} role="status" data-playback-state={status.tone}><Icon name={status.icon} size={16} /><span>{status.text}</span></span>
-      <button type="button" className="quiet-button" data-playback="toggle" title="Pause or play (Space)" onClick={togglePause}>
+      <button type="button" className="quiet-button" data-playback="toggle" title="暂停或播放（空格键）" onClick={togglePause}>
         <Icon name={paused ? 'play' : 'pause'} size={16} />
-        <span>{paused ? 'Play' : 'Pause'}</span>
+        <span>{paused ? '播放' : '暂停'}</span>
       </button>
-      <button type="button" className="quiet-button" data-playback="step" title="One fixed step while paused" disabled={!paused} onClick={stepOnce}>
+      <button type="button" className="quiet-button" data-playback="step" title="暂停时推进一步" disabled={!paused} onClick={stepOnce}>
         <Icon name="stepForward" size={16} />
-        <span>Step</span>
+        <span>单步</span>
       </button>
-      <span className="speed-group" role="group" aria-label="Speed">
+      <span className="speed-group" role="group" aria-label="播放倍速">
         {SPEED_STEPS.map((value) => (
-          <button key={value} type="button" className={`quiet-button tabular${speed === value ? ' active' : ''}`} data-speed={value} title="Speed (keys - and +)" onClick={() => setSpeed(value)}>
-            {value}x
+          <button key={value} type="button" className={`quiet-button tabular${speed === value ? ' active' : ''}`} data-speed={value} aria-pressed={speed === value} title="播放倍速（减号或加号键）" onClick={() => setSpeed(value)}>
+            {value} 倍
           </button>
         ))}
       </span>
-      <button type="button" className={`quiet-button${slowAtEvents ? ' active' : ''}`} data-playback="slow" title="Ease to 0.25x around each stage's event in the tour" onClick={() => setSlowAtEvents(!slowAtEvents)}>
+      <button type="button" className={`quiet-button${slowAtEvents ? ' active' : ''}`} data-playback="slow" aria-pressed={slowAtEvents} title="导览播放到关键动作时降至 0.25 倍速" onClick={() => setSlowAtEvents(!slowAtEvents)}>
         <Icon name={slowAtEvents ? 'scan' : 'ring'} size={16} />
-        <span>Slow down at events</span>
+        <span>关键动作慢放</span>
       </button>
     </div>
   );
@@ -214,26 +215,41 @@ function StageBar() {
   const touring = useStore((state) => state.touring);
   const tourIndex = useStore((state) => state.tourIndex);
   const current = touring ? tourIndex : stageIndex;
+  const optionsRef = useRef(null);
+  useEffect(() => {
+    const options = optionsRef.current;
+    const selected = options.querySelector('.stage-button.active');
+    if (!selected || options.scrollWidth <= options.clientWidth) return;
+    const bounds = options.getBoundingClientRect();
+    const active = selected.getBoundingClientRect();
+    if (active.left < bounds.left) options.scrollLeft += active.left - bounds.left;
+    else if (active.right > bounds.right) options.scrollLeft += active.right - bounds.right;
+  }, [current]);
+
   return (
-    <nav className="stage-bar card" aria-label="Stages">
-      <button type="button" className="quiet-button icon-only" data-stage-step="previous" title="Previous stage" aria-label="Previous stage" onClick={previousStage}><Icon name="previous" size={16} /></button>
-      {STAGES.map((stage, index) => (
-        <button
-          key={stage.id}
-          type="button"
-          className={`quiet-button stage-button${index === current ? ' active' : ''}`}
-          data-stage={stage.id}
-          title={`${stage.name}: ${stage.does} (key ${stage.key})`}
-          onClick={() => pickStage(index)}
-        >
-          <span className="stage-key tabular">{stage.key}</span>
-          <span>{stage.short}</span>
-        </button>
-      ))}
-      <button type="button" className="quiet-button icon-only" data-stage-step="next" title="Next stage" aria-label="Next stage" onClick={nextStage}><Icon name="next" size={16} /></button>
-      <button type="button" className={`quiet-button tour-button${touring ? ' active' : ''}`} data-keeps-tour data-tour onClick={() => (touring ? stopTour() : startTour())}>
+    <nav className="stage-bar card" aria-label="流程镜头">
+      <button type="button" className="quiet-button icon-only" data-stage-step="previous" title="上一步" aria-label="上一步" onClick={previousStage}><Icon name="previous" size={16} /></button>
+      <div className="stage-options" ref={optionsRef}>
+        {STAGES.map((stage, index) => (
+          <button
+            key={stage.id}
+            type="button"
+            className={`quiet-button stage-button${index === current ? ' active' : ''}`}
+            data-stage={stage.id}
+            aria-label={stage.name}
+            aria-pressed={index === current}
+            title={`${stage.name} · ${stage.does}（按 ${stage.key} 键）`}
+            onClick={() => pickStage(index)}
+          >
+            <span className="stage-key tabular" aria-hidden="true">{stage.key}</span>
+            <span>{stage.short}</span>
+          </button>
+        ))}
+      </div>
+      <button type="button" className="quiet-button icon-only" data-stage-step="next" title="下一步" aria-label="下一步" onClick={nextStage}><Icon name="next" size={16} /></button>
+      <button type="button" className={`quiet-button tour-button${touring ? ' active' : ''}`} data-keeps-tour data-tour aria-label={touring ? '停止导览' : '开始导览'} onClick={() => (touring ? stopTour() : startTour())}>
         <Icon name={touring ? 'pause' : 'route'} size={16} />
-        <span>{touring ? `Tour ${tourIndex + 1} of ${STAGES.length}` : 'Tour'}</span>
+        <span>{touring ? `导览 ${tourIndex + 1} / ${STAGES.length}` : '导览'}</span>
       </button>
     </nav>
   );
@@ -247,18 +263,18 @@ function Timeline() {
   const flight = FLIGHTS[plan.flight];
   const elapsed = Math.max(0, sim.time - plan.t0);
   return (
-    <section className="card timeline" aria-label="Bag timeline">
+    <section className="card timeline" aria-label="行李时间线">
       <div className="timeline-head">
-        <span className="timeline-title"><Icon name="bag" size={16} /> Following bag <strong className="tabular">{plan.tag}</strong></span>
+        <span className="timeline-title"><Icon name="bag" size={16} /> 跟踪行李 <strong className="tabular">{plan.tag}</strong></span>
+        <span className="timeline-meta tabular">{flightLabel(flight)} · 值机后 {elapsed.toFixed(0)} 秒</span>
         <PlaybackControls />
-        <span className="timeline-meta tabular">{flight.code} to {flight.destination}, {elapsed.toFixed(0)} s since check-in</span>
       </div>
       <ol className="steps">
         {TIMELINE_STEPS.map((step, index) => {
           const done = index < description.stage;
           const current = index === description.stage;
           return (
-            <li key={step} className={`step${done ? ' done' : ''}${current ? ' current' : ''}`}>
+            <li key={step} className={`step${done ? ' done' : ''}${current ? ' current' : ''}`} aria-current={current ? 'step' : undefined}>
               <span className="step-mark">{done ? <Icon name="check" size={18} /> : current ? <Icon name="scan" size={18} /> : <span className="step-dot" />}</span>
               <span className="step-name">{step}</span>
             </li>
@@ -279,10 +295,11 @@ function BagRows() {
     .filter((plan) => {
       if (!search) return true;
       const flight = FLIGHTS[plan.flight];
-      return `${plan.tag} ${flight.code} ${flight.destination}`.toLowerCase().includes(search);
+      return `${plan.tag} ${flightSearchText(flight)}`.toLowerCase().includes(search);
     })
     .sort((first, second) => (second.hero ? 1 : 0) - (first.hero ? 1 : 0) || second.id - first.id)
     .slice(0, 8);
+  if (!rows.length) return <p className="empty">{search ? '没有找到匹配的行李。' : '暂无可查看的行李。'}</p>;
   return rows.map((plan) => {
     const flight = FLIGHTS[plan.flight];
     const status = sim.bagStatus(plan, sim.time);
@@ -290,8 +307,8 @@ function BagRows() {
     return (
       <button key={plan.id} type="button" className={`row${selected ? ' selected' : ''}`} data-row="bag" onClick={() => selectBag(plan.id)}>
         <StatusIcon status={status} size={18} />
-        <span className="row-main"><strong className="tabular">{plan.tag}</strong><small>{flight.code} to {flight.destination}</small></span>
-        <span className="row-side">{plan.hero ? 'Tracked' : statusLabel(status)}</span>
+        <span className="row-main"><strong className="tabular">{plan.tag}</strong><small>{flightLabel(flight)}</small></span>
+        <span className="row-side">{plan.hero ? '跟踪中' : statusLabel(status)}</span>
       </button>
     );
   });
@@ -299,27 +316,28 @@ function BagRows() {
 
 function FlightRows() {
   const search = useStore((state) => state.search).trim().toLowerCase();
-  return FLIGHTS.map((flight, index) => ({ flight, index }))
-    .filter(({ flight }) => !search || `${flight.code} ${flight.destination}`.toLowerCase().includes(search))
-    .map(({ flight, index }) => {
-      const loaded = sim.signals.flightLoaded[index];
-      const share = Math.min(1, loaded / flight.expected);
-      return (
-        <button key={flight.code} type="button" className="row" data-row="flight" data-flight={flight.code} onClick={() => selectUnit(`chute-${sim.world.chutes[index].id}`, { fly: true })}>
-          <StatusIcon status={index === 6 ? 'closed' : 'open'} size={18} />
-          <span className="row-main"><strong>{flight.code} to {flight.destination}</strong><small>Gate {flight.gate}, departs in {flight.departsInMinutes} min</small></span>
-          <span className="row-side tabular">
-            {loaded}/{flight.expected}
-            <span className="mini-track"><span style={{ width: `${share * 100}%` }} /></span>
-          </span>
-        </button>
-      );
-    });
+  const rows = FLIGHTS.map((flight, index) => ({ flight, index }))
+    .filter(({ flight }) => flightSearchText(flight).toLowerCase().includes(search));
+  if (!rows.length) return <p className="empty">没有找到匹配的航班。</p>;
+  return rows.map(({ flight, index }) => {
+    const loaded = sim.signals.flightLoaded[index];
+    const share = Math.min(1, loaded / flight.expected);
+    return (
+      <button key={flight.code} type="button" className="row" data-row="flight" data-flight={flight.code} onClick={() => selectUnit(`chute-${sim.world.chutes[index].id}`, { fly: true })}>
+        <StatusIcon status={index === 6 ? 'closed' : 'open'} size={18} />
+        <span className="row-main"><strong>{flightLabel(flight)}</strong><small>{flight.gate} 登机口 · {flight.departsInMinutes} 分钟后起飞</small></span>
+        <span className="row-side tabular">
+          {loaded}/{flight.expected}
+          <span className="mini-track"><span style={{ width: `${share * 100}%` }} /></span>
+        </span>
+      </button>
+    );
+  });
 }
 
 function AlertRows() {
   const entries = [...sim.state.log].reverse().slice(0, 8);
-  if (!entries.length) return <p className="empty">No alerts</p>;
+  if (!entries.length) return <p className="empty">暂无告警。</p>;
   return entries.map((entry, index) => (
     <button key={`${entry.time}-${index}`} type="button" className="row" onClick={() => entry.bagId && selectBag(entry.bagId)}>
       <StatusIcon status={entry.level === 'alarm' ? 'alarm' : entry.level === 'warning' ? 'warning' : 'ok'} size={18} />
@@ -330,12 +348,12 @@ function AlertRows() {
 
 function ListPanel() {
   const tab = useStore((state) => state.tab);
-  const tabs = [['bags', 'Bags'], ['flights', 'Flights'], ['alerts', 'Alerts']];
+  const tabs = [['bags', '行李'], ['flights', '航班'], ['alerts', '告警']];
   return (
-    <section className="card list-panel" aria-label="Lists">
-      <div className="tabs">
+    <section className="card list-panel" aria-label="行李、航班与告警">
+      <div className="tabs" role="group" aria-label="列表切换">
         {tabs.map(([id, label]) => (
-          <button key={id} type="button" className={`quiet-button${tab === id ? ' active' : ''}`} data-tab={id} onClick={() => setState({ tab: id })}>
+          <button key={id} type="button" className={`quiet-button${tab === id ? ' active' : ''}`} data-tab={id} aria-pressed={tab === id} onClick={() => setState({ tab: id })}>
             {label}
           </button>
         ))}
@@ -352,13 +370,15 @@ function ListPanel() {
 function CameraButtons() {
   const orbiting = useStore((state) => state.orbiting);
   return (
-    <div className="camera-buttons card" aria-label="Camera">
-      <button type="button" title="Zoom in" data-camera="zoom-in" onClick={() => zoomBy(0.8)}><Icon name="plus" /></button>
-      <button type="button" title="Zoom out" data-camera="zoom-out" onClick={() => zoomBy(1.25)}><Icon name="minus" /></button>
-      <button type="button" title="Overview" data-camera="home" onClick={() => resetView()}><Icon name="home" /></button>
+    <div className="camera-buttons card" role="group" aria-label="视角控制">
+      <button type="button" title="放大" aria-label="放大" data-camera="zoom-in" onClick={() => zoomBy(0.8)}><Icon name="plus" /></button>
+      <button type="button" title="缩小" aria-label="缩小" data-camera="zoom-out" onClick={() => zoomBy(1.25)}><Icon name="minus" /></button>
+      <button type="button" title="回到全景" aria-label="回到全景" data-camera="home" onClick={() => resetView()}><Icon name="home" /></button>
       <button
         type="button"
-        title="Slow orbit"
+        title="慢速环绕"
+        aria-label="慢速环绕"
+        aria-pressed={orbiting}
         data-camera="orbit"
         className={orbiting ? 'on' : ''}
         onClick={() => {
@@ -368,7 +388,7 @@ function CameraButtons() {
       >
         <Icon name="orbit" />
       </button>
-      <button type="button" title="Follow the tracked bag" data-camera="follow" onClick={() => sim.heroPlan && selectBag(sim.heroPlan.id)}><Icon name="target" /></button>
+      <button type="button" title="跟随示例行李" aria-label="跟随示例行李" data-camera="follow" onClick={() => sim.heroPlan && selectBag(sim.heroPlan.id)}><Icon name="target" /></button>
     </div>
   );
 }
@@ -393,7 +413,7 @@ function Pins() {
   const pins = unitPins(siteId);
   const vector = useRef(new THREE.Vector3());
   return (
-    <div className="pin-layer">
+    <div className="pin-layer" aria-hidden="true">
       {pins.map((pin) => (
         <Pin
           key={`${siteId}-${pin.unitId}`}
@@ -410,7 +430,7 @@ function Pins() {
       {siteId === 'hall' && sim.heroPlan && !(selection?.kind === 'bag') && (
         <Pin
           id="hero"
-          label={`Bag ${sim.heroPlan.tag}`}
+          label={`行李 ${sim.heroPlan.tag}`}
           icon="bag"
           tone="hero"
           getPosition={() => {
@@ -446,21 +466,28 @@ function FilmCursor() {
   );
 }
 
-export default function Dashboard() {
+export default function Dashboard({ children }) {
   useSimulationTick(0.25);
+  const mode = useStore(state => state.mode);
   const showCursor = new URLSearchParams(window.location.search).has('film');
+  const capture = new URLSearchParams(window.location.search).has('capture');
   return (
-    <div className="dashboard">
+    <div className={mode === 'monitor' ? 'dashboard' : 'station-shell' + (capture ? ' filming' : '')}>
+      <main className="viewport" aria-label="行李处理三维场景">{children}</main>
+      {mode === 'inspect' ? <Inspection/> : <>
       <TopBar />
-      <KpiCards />
       <StageBar />
-      <DetailCard />
       <CameraButtons />
       <Pins />
       <Caption />
+      <KpiCards />
       <Timeline />
-      <ListPanel />
+      <div className="side-panels">
+        <DetailCard />
+        <ListPanel />
+      </div>
       {showCursor && <FilmCursor />}
+      </>}
     </div>
   );
 }

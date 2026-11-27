@@ -1,0 +1,44 @@
+{
+  "source": {
+    "creator": "NVIDIA SimReady",
+    "originalUrl": "https://huggingface.co/datasets/nvidia/simready-assets",
+    "converter": "CodePawl",
+    "repo": "codepawl/simready-glb",
+    "datasetUrl": "https://huggingface.co/datasets/codepawl/simready-glb",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "revision": "d529a9403ea062d57b3c0c5d7c01473b0db0beef"
+  },
+  "models": [
+    {
+      "id": "conveyor_belt_a05",
+      "file": "glb/conveyor_belt_a05.glb",
+      "bytes": 2139512,
+      "sha256": "dc6427acbb47a059fe03a4909d5050710ee69f26c2ed1124133c7deb73a2f2ab"
+    },
+    {
+      "id": "conveyor_belt_a02",
+      "file": "glb/conveyor_belt_a02.glb",
+      "bytes": 2640120,
+      "sha256": "237ebcb1944af19a760f80edaa4a31b2c54cbe2f5e2260ddefac24ae348765a1"
+    },
+    {
+      "id": "cart_luggage_platform_a01",
+      "file": "glb/cart_luggage_platform_a01.glb",
+      "bytes": 2351092,
+      "sha256": "d26e5b76c5bbffea7d05bac11eb1632a2d927edec1bf33f470404cb601f07de0"
+    },
+    {
+      "id": "computer_scanner_barcode_b01",
+      "file": "glb/computer_scanner_barcode_b01.glb",
+      "bytes": 546532,
+      "sha256": "8c9723c96ff64baef07dbe3062d7893274aea8a9ba695bfea0ae6bdfa441ec30"
+    },
+    {
+      "id": "barrier_fence_metal_a02",
+      "file": "glb/barrier_fence_metal_a02.glb",
+      "bytes": 204316,
+      "sha256": "821a20d929c3e11d23cc171e638c8e8fc1e7baea207956cc6d929f567c36a25e"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useMemo, useRef } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { useGLTF } from '@react-three/drei';
+import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping } from '@react-three/postprocessing';
 import { ToneMappingMode } from 'postprocessing';
 import * as THREE from 'three';
@@ -9,13 +10,20 @@ import { sim, world } from '../appContext.js';
 import { createPlant } from './plant.js';
 import { createGround } from './ground.js';
 import { applyRigToCamera, clearSelection, dragOrbit, dragPan, plantRef, positionOfSelection, rig, selectBag, selectUnit, snapToView, updateRig, zoomBy } from '../runtime.js';
-import { getState } from '../store.js';
+import { getState, setState } from '../store.js';
+import manifest from '../simready-assets.json';
+import { DEFAULT_STATION, STATIONS } from '../stations.js';
 import { SITES } from '../model.js';
 import { updatePins } from '../pins.js';
 import { updatePlayback } from '../playback.js';
 
 const ASSET_NAMES = ['bags', 'conveyors', 'sorter', 'screening', 'logistics', 'ramp'];
-ASSET_NAMES.forEach((name) => useGLTF.preload(`/assets/${name}.glb`));
+const MODEL_IDS = [...ASSET_NAMES, ...manifest.models.map(model => model.id)];
+const MODEL_URLS = [
+  ...ASSET_NAMES.map(name => '/assets/' + name + '.glb'),
+  ...manifest.models.map(model => '/simready/' + model.id + '.glb'),
+];
+const configureLoader = loader => loader.setMeshoptDecoder(MeshoptDecoder);
 
 const RING_COLOR = '#1d6bff';
 
@@ -25,7 +33,7 @@ function Environment() {
     const generator = new THREE.PMREMGenerator(gl);
     const environment = generator.fromScene(new RoomEnvironment(), 0.04);
     scene.environment = environment.texture;
-    scene.environmentIntensity = 0.4;
+    scene.environmentIntensity = 0.72;
     scene.background = new THREE.Color('#d3e2f0');
     scene.fog = new THREE.Fog('#d3e2f0', 170, 380);
     return () => {
@@ -44,12 +52,14 @@ function Driver({ plant }) {
   const lastSnap = useRef(new THREE.Vector3());
 
   useEffect(() => {
-    snapToView(SITES[0].view);
+    const initial = getState();
+    const station = STATIONS.find(item => item.id === initial.stationId) || DEFAULT_STATION;
+    snapToView(initial.mode === 'inspect' ? station.view : SITES.find(site => site.id === initial.siteId).view);
     camera.near = 0.5;
     camera.far = 600;
     camera.fov = 30;
     camera.updateProjectionMatrix();
-    rig.orbitRate = 0.035;
+    rig.orbitRate = initial.mode === 'inspect' ? 0 : 0.035;
   }, [camera]);
 
   useEffect(() => {
@@ -174,7 +184,7 @@ function Driver({ plant }) {
         intensity={2.0}
         color="#fff5e6"
         castShadow
-        shadow-mapSize={[4096, 4096]}
+        shadow-mapSize={[2048, 2048]}
         shadow-camera-left={-48}
         shadow-camera-right={48}
         shadow-camera-top={48}
@@ -185,7 +195,7 @@ function Driver({ plant }) {
         shadow-normalBias={0.04}
         shadow-radius={3}
       />
-      <hemisphereLight args={['#dbe8ff', '#a9b6c4', 0.55]} />
+      <hemisphereLight args={['#e1eff9', '#b0a89c', 0.65]} />
       <mesh ref={ringRef} renderOrder={20} visible={false}>
         <ringGeometry args={[0.9, 1, 64]} />
         <meshBasicMaterial color={RING_COLOR} transparent opacity={0.95} depthWrite={false} side={THREE.DoubleSide} toneMapped={false} />
@@ -195,10 +205,10 @@ function Driver({ plant }) {
 }
 
 function PlantView() {
-  const gltfs = ASSET_NAMES.map((name) => useGLTF(`/assets/${name}.glb`));
+  const gltfs = useLoader(GLTFLoader, MODEL_URLS, configureLoader);
   const plant = useMemo(() => {
     const scenes = {};
-    ASSET_NAMES.forEach((name, index) => {
+    MODEL_IDS.forEach((name, index) => {
       scenes[name] = gltfs[index].scene;
     });
     return createPlant(scenes, sim);
@@ -207,6 +217,7 @@ function PlantView() {
   useEffect(() => {
     plantRef.current = plant;
     window.__plant = plant;
+    setState({ sceneReady: true });
     return () => {
       plantRef.current = null;
     };

@@ -74,7 +74,7 @@ function wall(fromX, fromZ, toX, toZ, height, baseY, color) {
   mesh.receiveShadow = true;
   const trim = new THREE.Mesh(
     new THREE.BoxGeometry(length, 0.25, 0.55),
-    new THREE.MeshStandardMaterial({ color: '#3b82f6', roughness: 0.5 }),
+    new THREE.MeshStandardMaterial({ color: '#315a64', roughness: 0.5 }),
   );
   trim.position.set(mesh.position.x, baseY + height + 0.125, mesh.position.z);
   trim.rotation.y = mesh.rotation.y;
@@ -100,7 +100,7 @@ export function createGround(world) {
   // Main level: polished concrete with painted walkways around the machines.
   const hall = { minX: -31, maxX: 44, minZ: -9, maxZ: 33 };
   const hallTexture = worldCanvas(hall.minX, hall.maxX, hall.minZ, hall.maxZ, 26, (context, toX, toZ, scale, width, height) => {
-    context.fillStyle = '#b7c3cf';
+    context.fillStyle = '#bcbfbb';
     context.fillRect(0, 0, width, height);
     seededNoise(context, width, height, 90000, 0.14, 120);
     context.strokeStyle = 'rgba(120,132,146,0.35)';
@@ -149,6 +149,10 @@ export function createGround(world) {
     // Green walkway to the search room.
     context.fillStyle = 'rgba(52,168,120,0.22)';
     context.fillRect(toX(9.4), toZ(13), 3.2 * scale, 4 * scale);
+    context.fillStyle = '#52666a';
+    context.font = 'bold ' + Math.round(0.43 * scale) + 'px Arial';
+    context.fillText('ATR   02    →', toX(2.4), toZ(24.85));
+    context.fillText('CT   01', toX(10.6), toZ(19.4));
   });
   group.add(slab(hall.minX, hall.maxX, hall.minZ, hall.maxZ, 0, -2, hallTexture, '#aab6c2'));
 
@@ -179,6 +183,13 @@ export function createGround(world) {
   group.add(wall(checkIn.minX - 0.2, checkIn.minZ, checkIn.minX - 0.2, checkIn.maxZ, 3.6, 1.5, '#e6ebf0'));
   group.add(wall(checkIn.minX - 0.2, checkIn.minZ, checkIn.maxX, checkIn.minZ, 3.6, 1.5, '#e6ebf0'));
   group.add(wall(hall.minX - 0.2, checkIn.maxZ, hall.minX - 0.2, hall.maxZ, 5, 0, '#e6ebf0'));
+  const windows = new THREE.InstancedMesh(new THREE.BoxGeometry(3.76, 1.36, 0.08),
+    new THREE.MeshStandardMaterial({ color: '#789eaa', roughness: 0.24, metalness: 0.34 }), 18);
+  const sill = new THREE.Matrix4();
+  for (let bay = 0; bay < windows.count; bay++) {
+    windows.setMatrixAt(bay, sill.makeTranslation(-28.8 + bay * 4, 3.7, hall.minZ + 0.24));
+  }
+  group.add(windows);
 
   // Apron and make-up edge.
   const offsetX = SITE_OFFSET_RAMP;

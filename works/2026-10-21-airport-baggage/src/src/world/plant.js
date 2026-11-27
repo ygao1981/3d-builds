@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BAG_VARIANTS } from '../sim/simulation.js';
+import { createSimReady } from './simready.js';
 
 const HERO_COLOR = new THREE.Color('#ff2b8a');
 const BELT_SPEED_BY_NODE = {
@@ -26,6 +27,29 @@ function smoothstep(value) {
   return clamped * clamped * (3 - 2 * clamped);
 }
 
+function equipmentPlate(parent, code, size, position, yaw = 0) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 384;
+  canvas.height = 96;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#17313b';
+  ctx.fillRect(0, 0, 384, 96);
+  ctx.fillStyle = '#e7aa46';
+  ctx.fillRect(0, 0, 14, 96);
+  ctx.fillStyle = '#f7f6ed';
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 63px Arial';
+  ctx.fillText(code, 200, 71);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(...size),
+    new THREE.MeshStandardMaterial({ map: texture, roughness: 0.7 }));
+  sign.position.fromArray(position);
+  sign.rotation.y = yaw;
+  parent.add(sign);
+}
+
 // Builds every Blender model into one scene graph and returns an update function the render loop calls.
 export function createPlant(scenes, sim) {
   const world = sim.world;
@@ -34,6 +58,8 @@ export function createPlant(scenes, sim) {
   const beltMaterials = new Map();
   const beltTextures = [];
   const pickableUnits = new Map();
+  const simready = createSimReady(scenes);
+  const guardCoatings = new Map();
 
   function nodeTemplate(assetKey, nodeName) {
     const node = scenes[assetKey].getObjectByName(nodeName);
@@ -62,6 +88,14 @@ export function createPlant(scenes, sim) {
       if (!child.isMesh) return;
       child.castShadow = true;
       child.receiveShadow = true;
+      if (child.material?.name === 'guard_blue') {
+        if (!guardCoatings.has(child.material)) {
+          const coating = child.material.clone();
+          coating.color.set('#385e69');
+          guardCoatings.set(child.material, coating);
+        }
+        child.material = guardCoatings.get(child.material);
+      }
       if (child.material && child.material.name === 'belt_rubber') {
         const speed = BELT_SPEED_BY_NODE[child.name] ?? beltSpeed ?? 1;
         child.material = beltMaterialFor(child.material, speed, reversed);
@@ -74,8 +108,9 @@ export function createPlant(scenes, sim) {
   }
 
   function place(module) {
-    const group = nodeTemplate(module.asset, module.node).clone(true);
-    prepare(group, module.belt?.speed, module.belt?.reversed ?? false);
+    const base = nodeTemplate(module.asset, module.node).clone(true);
+    prepare(base, module.belt?.speed, module.belt?.reversed ?? false);
+    const group = module.simready ? simready.placeConveyor(module, base) : base;
     group.position.set(module.position[0], module.position[1], module.position[2]);
     group.rotation.y = module.yaw;
     group.userData.unitId = module.unit;
@@ -91,6 +126,7 @@ export function createPlant(scenes, sim) {
     const group = place(module);
     placed.set(module, group);
   });
+  simready.addEquipment(root, pickableUnits);
   const supportMaterial = new THREE.MeshStandardMaterial({ color: '#39424d', roughness: 0.7 });
   world.supports.forEach((support) => {
     const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, support.height, 0.1), supportMaterial);
@@ -105,6 +141,12 @@ export function createPlant(scenes, sim) {
   const scanner = find('ct-1');
   const gantry = scanner.getObjectByName('ct_gantry');
   const arch = find('arch-1');
+  equipmentPlate(arch, 'ATR 02', [0.78, 0.16], [0.283, 1.68, 0], Math.PI / 2);
+  equipmentPlate(scanner, 'CT 01', [0.86, 0.21], [0, 1.77, 0.806]);
+  world.deskRows.forEach((_, index) => {
+    equipmentPlate(find('desk-' + (index + 1)), 'A0' + (index + 1),
+      [0.68, 0.20], [0.9, 1.62, -1.077]);
+  });
   const paddle = find('diverter-1').getObjectByName('diverter_paddle_arm');
   const loaderGroup = find('loader-1');
   const boom = loaderGroup.getObjectByName('belt_loader_boom');
@@ -281,6 +323,7 @@ export function createPlant(scenes, sim) {
   function update(alpha) {
     const signals = sim.signals;
     const time = sim.time + alpha * (1 / 60);
+    simready.update(time);
 
     // Belts
     for (const entry of beltTextures) {
@@ -407,5 +450,5 @@ export function createPlant(scenes, sim) {
   }
 
   void scratchPosition;
-  return { root, update, positionOfBag, boundsOfUnit, pick, pickableUnits };
+  return { root, update, positionOfBag, boundsOfUnit, pick, pickableUnits, simready: simready.placements };
 }

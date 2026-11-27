@@ -226,9 +226,14 @@ function buildCheckInAndSorter() {
   main.curveLeft(SPEED.collector);
   main.decline(3, SPEED.collector);
   main.straight(16, SPEED.line);
+  main.modules.slice(-3).forEach((section, index) => {
+    Object.assign(section, { simready: 'conveyor_belt_a05', unit: 'read-roll-' + (index + 1) });
+  });
   const mainLineEndX = main.x;
   main.curveLeft(SPEED.line);
+  Object.assign(main.modules.at(-1), { simready: 'conveyor_belt_a02', unit: 'read-bend' });
   main.straight(1, SPEED.line);
+  Object.assign(main.modules.at(-1), { simready: 'conveyor_belt_a05', unit: 'read-roll-4' });
   main.advance(2.7, SPEED.computedTomography);
   main.straight(2, SPEED.line);
   return { main, deskRows, collectorX, mainLineEndX };

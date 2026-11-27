@@ -155,11 +155,12 @@ export function installPlaybackInput() {
   );
   window.addEventListener('keydown', (event) => {
     const target = event.target;
-    if (target instanceof HTMLElement && (target.tagName === 'INPUT' || target.isContentEditable)) return;
+    if (target instanceof HTMLElement && (target.closest('input, select, textarea') || target.isContentEditable)) return;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
-    if (event.key >= '1' && event.key <= String(STAGES.length)) {
+    if (getState().mode === 'monitor' && event.key >= '1' && event.key <= String(STAGES.length)) {
       pickStage(Number(event.key) - 1);
     } else if (event.key === ' ') {
+      if (target instanceof Element && target.closest('button, summary')) return;
       event.preventDefault();
       togglePause();
     } else if (event.key === '-' || event.key === '_') {

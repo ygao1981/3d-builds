@@ -4,7 +4,10 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port 5434 --strictPort --host 127.0.0.1",
+    "dev": "vite",
+    "preview": "vite preview",
+    "assets": "node prepare-assets.mjs",
+    "prebuild": "node prepare-assets.mjs --check",
     "build": "vite build"
   },
   "dependencies": {

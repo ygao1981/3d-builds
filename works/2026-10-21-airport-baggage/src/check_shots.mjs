@@ -15,7 +15,7 @@ const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const logs = [];
 page.on('console', (message) => logs.push(`${message.type()}: ${message.text()}`));
 page.on('pageerror', (error) => logs.push(`pageerror: ${error.message}`));
-await page.goto(`http://127.0.0.1:5434/?start=${process.env.START ?? 58}`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:5426/?view=monitor&start=${process.env.START ?? 58}`, { waitUntil: 'load' });
 await page.waitForFunction(() => window.__plant && window.__sim, null, { timeout: 90000 });
 await page.waitForTimeout(2500);
 

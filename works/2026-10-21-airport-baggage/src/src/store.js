@@ -3,6 +3,9 @@ import { useSyncExternalStore } from 'react';
 // A tiny external store: the 3D view and the dashboard both read and write it.
 const listeners = new Set();
 let state = {
+  mode: new URLSearchParams(window.location.search).get('view') === 'monitor' ? 'monitor' : 'inspect',
+  stationId: 'read',
+  sceneReady: false,
   siteId: 'hall',
   selection: null, // { kind: 'bag', planId } or { kind: 'unit', unitId }
   following: false,

@@ -57,7 +57,7 @@ await page.addInitScript(() => {
   document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));
 });
 
-await page.goto(`http://127.0.0.1:5434/?film=1&start=${startTime}`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:5426/?view=monitor&film=1&start=${startTime}`, { waitUntil: 'load' });
 for (let attempt = 0; attempt < 600; attempt += 1) {
   await page.evaluate(() => window.__advance(0));
   const ready = await page.evaluate(() => Boolean(window.__plant && window.__sim && window.__camera));

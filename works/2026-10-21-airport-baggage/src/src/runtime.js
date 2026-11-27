@@ -108,7 +108,8 @@ export function applyRigToCamera(camera) {
 export function dragOrbit(deltaX, deltaY) {
   if (rig.fly) return;
   clearStageMarker();
-  rig.goal.azimuth = Math.min(1.5, Math.max(-1.1, rig.goal.azimuth - deltaX * 0.006));
+  const azimuth = rig.goal.azimuth - deltaX * 0.006;
+  rig.goal.azimuth = getState().mode === 'inspect' ? azimuth : Math.min(1.5, Math.max(-1.1, azimuth));
   rig.goal.elevation = Math.min(1.25, Math.max(rig.getFollowPosition ? 0.5 : 0.28, rig.goal.elevation + deltaY * 0.005));
 }
 

@@ -572,18 +572,18 @@ export function createSimulation(world, options = {}) {
       state.recentArch.push({ time, noRead: type === 'noread' });
       if (type === 'noread') {
         state.noReadCount += 1;
-        pushLog(time, 'warning', `Arch 1 could not read tag ${plan.tag}`, plan);
+        pushLog(time, 'warning', `1 号读码门未能读取行李牌 ${plan.tag}`, plan);
       } else {
         state.readCount += 1;
       }
       while (state.recentArch.length && state.recentArch[0].time < time - 180) state.recentArch.shift();
     } else if (type === 'alarm') {
-      pushLog(time, 'alarm', `Scanner 1 alarm on ${plan.tag}, sent to manual search`, plan);
+      pushLog(time, 'alarm', `1 号安检机告警，行李 ${plan.tag} 已转人工复检`, plan);
     } else if (type === 'loaded') {
       signals.chuteCounts[plan.chute] += 1;
       signals.flightLoaded[plan.flight] += 1;
     } else if (type === 'cleared') {
-      pushLog(time, 'ok', `Search room cleared ${plan.tag}`, plan);
+      pushLog(time, 'ok', `行李 ${plan.tag} 已通过人工复检`, plan);
     }
   }
 

@@ -7,7 +7,7 @@ const mode = process.argv[2] ?? 'all';
 const wantedStages = process.argv.slice(3);
 const outputDirectory = path.resolve('shots', 'stages');
 fs.mkdirSync(outputDirectory, { recursive: true });
-const baseUrl = `http://127.0.0.1:5434/?start=${process.env.START ?? 58}`;
+const baseUrl = `http://127.0.0.1:5426/?view=monitor&start=${process.env.START ?? 58}`;
 const browserArguments = ['--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=d3d11', '--enable-webgl', '--disable-renderer-backgrounding'];
 
 const browser = await chromium.launch({ headless: true, args: browserArguments });
