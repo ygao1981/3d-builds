@@ -19,6 +19,19 @@ const capture=new URLSearchParams(location.search).has('capture');
 
 function describe(key,d,selection){
   const eq=d.site?.distributionEquipment;
+  if(key==='sorting' && selection?.startsWith('供包台 ')){
+    const s=d.sorter,f=s.feedDeck;
+    if(f){
+      const [a,b]=s.feeds[Number(selection.split(' ')[1])-1];
+      const angle=Math.atan2(Math.abs(b[1]-a[1]),Math.abs(b[0]-a[0]))*180/Math.PI;
+      const lengths=f.rows.map(([start,end])=>(end-start).toFixed(2)).join('、');
+      return {sheet:s.reference,parts:'PR0020-1001、F1009、F1013',
+        note:`排队带向图面下方送料，包裹再转向左下方上环。沿输送方向量取的五排短带可见长度依次约 ${lengths} 米。`,
+        metrics:[['与环线夹角（图测）','约 '+Math.round(angle)+'°'],['短带区总宽（图测）','约 '+f.width.toFixed(2)+' m'],['每排短带',f.strips+' 条，单条约 '+f.stripWidth.toFixed(2)+' m']]};
+    }
+    return {sheet:s.reference,parts:s.partsSheet,note:'当前布局按供包中心线示意。载入供包台复核版配套布局，可查看按图分排的窄带。',
+      metrics:[['供包支路',s.feeds.length+' 路'],['供包台','五段式']]};
+  }
   if(key==='overview' && selection==='空托盘原位剖视')return {...describe('pallet',d),note:'环线和滑槽淡化后，可在主站房原位看到拆盘机、旋转台、横向输送链和九条移载支路。'};
   if(key==='sorting' && selection==='收货扫码称重')return {sheet:d.site.reference,parts:eq?.receipts?'PR0020-F1004 至 F1007':d.site.receiptParts||'PR0020-F1004',note:'收货线将散件送过三面读码与体积测量装置，再由称重皮带计量。',metrics:[['条码识读','三面'],['称重皮带','1.60 × 0.80 m'],['输送面高度','0.80 m']]};
   if(key==='overview' && d.site?.floorOperations){

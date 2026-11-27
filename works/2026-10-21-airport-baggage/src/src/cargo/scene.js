@@ -30,8 +30,19 @@ function traces(data,plant) {
   const loop=plant.sorting.loop,s=data.sorter,p=data.pallet;
   trace('sorting',Array.from({length:241},(_,i)=>loop.at(i*loop.length/240)));
   const eq=data.site?.distributionEquipment;
-  const distribution=data.site?[data.site.distribution || data.site.feederTrunk,...plant.sorting.induction.branches.map(b=>[...b.path,b.centre])]:[];
-  [...s.feeds,...s.chutes,...s.returns,...distribution,...(eq?[eq.merge,...eq.sources,eq.slide]:[])].forEach(path=>trace('sorting',path));
+  const induction=plant.sorting.induction;
+  const distribution=data.site?[data.site.distribution || data.site.feederTrunk,...induction.branches.map(b=>[...b.path,b.centre])]:[];
+  const feeds=s.feeds.map(([rear,join],i)=>[induction.branches[i]?.centre??rear,join]);
+  [...feeds,...s.chutes,...s.returns,...distribution,...(eq?[eq.merge,...eq.sources,eq.slide]:[])].forEach(path=>trace('sorting',path));
+  if(s.feedDeck)for(const [i,[start,join]] of s.feeds.entries()){
+    const len=Math.hypot(join[0]-start[0],join[1]-start[1]),dx=(join[0]-start[0])/len,dz=(join[1]-start[1])/len;
+    function arrow(x,z,u,v){
+      trace('sorting',[[x-u*.45-v*.18,z-v*.45+u*.18],[x,z],[x-u*.45+v*.18,z-v*.45-u*.18]]);
+    }
+    const station=s.feedDeck.rows[2][0];arrow(start[0]+dx*station,start[1]+dz*station,dx,dz);
+    const branch=induction.branches[i];
+    if(branch){const [u,v]=branch.travel;arrow(branch.seam[0]-.72*u,branch.seam[1]-.72*v,u,v);}
+  }
   if(eq)eq.buffer.rows.forEach((z,i)=>trace('sorting',[[eq.buffer.left[0],z],[i===3?eq.buffer.returnEnd:eq.buffer.right[0],z]]));
   p.turns.forEach((t,i)=>{
     trace('pallet',[p.inlets[i],t,[t[0],p.transfers[0][1]]]);
@@ -60,7 +71,7 @@ export function targets(data) {
     {label:'暂存与汇流',at:middle(eq.buffer.left,eq.buffer.right),height:.8,width:32,az:.18}
   ]:[];
   return {
-    sorting:sort.feeds.map(([a,c],i)=>({label:'供包台 '+(i+1),at:middle(a,c),height:sort.deck})).concat(data.site?[{label:'收货扫码称重',at:data.site.receipt,height:.85}]:[]).concat(data.site?.distribution?[{label:'分流与排队',at:data.site.branches[Math.floor(sort.feeds.length/2)][0],height:sort.deck}]:[]).concat(details),
+    sorting:sort.feeds.map(([a,c],i)=>({label:'供包台 '+(i+1),at:middle(a,c),height:sort.deck,az:0,elevation:1.35,width:11})).concat(data.site?[{label:'收货扫码称重',at:data.site.receipt,height:.85}]:[]).concat(data.site?.distribution?[{label:'分流与排队',at:data.site.branches[Math.floor(sort.feeds.length/2)][0],height:sort.deck}]:[]).concat(details),
     chutes:sort.chutes.map(([a,c],i)=>({label:'滚筒滑槽 '+(i+1),at:middle(a,c),height:(sort.chuteTop+sort.chuteBottom)/2})).concat({
       label:'格口人工码盘',at:middle(sort.chutes[0][1],p.tails[0].map((v,i)=>v+p.offset[i])),height:1.12}),
     pallet:[...p.stackers.map((at,i)=>({label:'拆盘机 '+(i+1),at,height:p.deck})),
@@ -226,7 +237,7 @@ export async function openCargo(canvas, onStatus) {
       const fullFloor=key==='overview' && focus===0 && !!hall.operations;
       const fitLower=page==='sorting' && key==='pallet' && focus<0;
       const az=heading ?? nav[key][focus]?.az ?? (key==='overview'?(focus===1?-.50:perspective.aspect<.8?(fullFloor?-Math.PI/2:-1.34):fullFloor?-.055:-.18):key==='dock'?2.46:key==='tables'?.49:key==='pallet' && !fitLower?-.61:.37);
-      const angle=key==='overview'?(focus===1?.47:fullFloor?.68:.81):key==='dock'?.70:key==='tables'?.62:key==='pallet'?(focus<0?.89:.56):.70;
+      const angle=nav[key][focus]?.elevation ?? (key==='overview'?(focus===1?.47:fullFloor?.68:.81):key==='dock'?.70:key==='tables'?.62:key==='pallet'?(focus<0?.89:.56):.70);
       const horizontal=ex.w*Math.abs(Math.cos(az))+ex.d*Math.abs(Math.sin(az));
       const depth=ex.w*Math.abs(Math.sin(az))+ex.d*Math.abs(Math.cos(az));
       const fit=Math.max(horizontal/perspective.aspect,depth*Math.sin(angle));

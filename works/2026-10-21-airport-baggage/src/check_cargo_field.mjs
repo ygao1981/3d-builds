@@ -145,6 +145,60 @@ try{
   assert(poses.induction.every(path=>path.allSeen && path.trunkError<.001 && path.cartError<.001 && path.maxGap<.08 &&
     path.exitSpeed>path.entrySpeed && Math.abs(path.tangent-1.48)<.001));
   assert(poses.receipt && poses.markedStaging>0 && poses.hallPosts>0);
+  if(await page.evaluate(()=>Boolean(window.__cargo.data.sorter.feedDeck))){
+    report.feedDecks=await page.evaluate(()=>{
+      const c=window.__cargo,s=c.plant.sorting,d=c.data.sorter,ind=s.induction;
+      const decks=d.feeds.map(([a,b],i)=>{
+        const len=Math.hypot(b[0]-a[0],b[1]-a[1]),dx=(b[0]-a[0])/len,dz=(b[1]-a[1])/len;
+        const profile=ind.profiles[i],load=s.loads.find(l=>l.inlet===i);
+        const arrive=(d.right-b[0]-load.slot*s.loop.length/d.carts)/1.48;
+        const position=t=>{s.update(t);if(!load.box.visible)throw Error('供包路径上的纸箱消失');return [load.box.position.x,load.box.position.z];};
+        const entryTime=arrive-profile.duration,delta=(a,b)=>b.map((v,k)=>v-a[k]);
+        const queueAt=dist=>position(entryTime+profile.timeAt(dist)),before=ind.branches[i].queueEnd;
+        const queueMove=delta(queueAt(before-.65),queueAt(before-.25));
+        const cartMove=delta(position(arrive+.02),position(arrive+.22));
+        const rows=ind.noses[i].filter(m=>m.userData.feedPart?.startsWith('短带 ')).map(m=>{
+          const pos=m.geometry.attributes.position,uv=m.geometry.attributes.uv;
+          const points=Array.from({length:pos.count},(_,k)=>{
+            const x=pos.getX(k)-a[0],z=pos.getZ(k)-a[1];
+            return {s:x*dx+z*dz,n:-x*dz+z*dx,u:uv.getX(k)};
+          });
+          const ns=points.map(p=>p.n).sort((x,y)=>x-y).filter((v,j,arr)=>!j || v-arr[j-1]>.002);
+          const low=Math.min(...points.map(p=>p.s)),high=Math.max(...points.map(p=>p.s)),widths=[];
+          for(let j=0;j<ns.length;j+=2)widths.push(ns[j+1]-ns[j]);
+          const band=points.filter(p=>Math.abs(p.n-ns[0])<.002).sort((x,y)=>x.s-y.s);
+          const t0=entryTime+profile.timeAt(profile.length-len+low);
+          const t1=entryTime+profile.timeAt(profile.length-len+high);
+          const first=position(t0),u0=band[0].u+m.material.map.offset.x;
+          const last=position(t1),phase=band.at(-1).u+m.material.map.offset.x-u0;
+          const [x,z]=delta(first,last);
+          return {low,high,length:high-low,width:ns.at(-1)-ns[0],widths,
+            angle:Math.atan2(z,-x)*180/Math.PI,travel:x*dx+z*dz,drift:Math.abs(-x*dz+z*dx),
+            axisError:Math.abs(-(last[0]-a[0])*dz+(last[1]-a[1])*dx),spliceError:Math.abs(phase-Math.round(phase))};
+        });
+        const frameEdges=ind.noses[i].flatMap(m=>{
+          const pos=m.geometry.attributes.position;
+          return Array.from({length:pos.count},(_,k)=>-(pos.getX(k)-a[0])*dz+(pos.getZ(k)-a[1])*dx);
+        });
+        return {queueMove,cartMove,rows,frameWidth:Math.max(...frameEdges)-Math.min(...frameEdges)};
+      });
+      s.update(c.time);return decks;
+    });
+    assert.equal(report.feedDecks.length,3);
+    for(const deck of report.feedDecks){
+      assert(Math.abs(deck.queueMove[0])<.001 && Math.abs(deck.queueMove[1]-.4)<.001);
+      assert(Math.abs(deck.cartMove[0]+.296)<.001 && Math.abs(deck.cartMove[1])<.001);
+      assert(Math.abs(deck.frameWidth-1.566)<.002);
+      assert.equal(deck.rows.length,5);
+      for(const [i,row] of deck.rows.entries()){
+        assert.equal(row.widths.length,5);
+        assert(row.widths.every(w=>Math.abs(w-.24)<.002) && Math.abs(row.width-1.28)<.002);
+        assert(Math.abs(row.length-[.388,.402,.402,.388,.639][i])<.003);
+        assert(Math.abs(row.angle-30)<.08 && Math.abs(row.travel-row.length)<.002);
+        assert(row.drift<.001 && row.axisError<.001 && row.spliceError<.001);
+      }
+    }
+  }
   // Test the physical top triangles. A continuous animation alone can mask a missing belt.
   report.junctions=await page.evaluate(()=>{
     const c=window.__cargo,s=c.plant.sorting,i=s.induction,e=c.data.site.distributionEquipment;

@@ -112,7 +112,14 @@ function sorterPlant(spec,scenes,site) {
     feed:{view:'sorting',focus:chosen.inlet,time:mod(when(spec.right-join[0])-3.7,cycle)},
     unload:{view:'chutes',focus:chosen.outlet,time:mod(when(loop.straight+loop.arc+head[0]-spec.left-speed*phase)-.8,cycle)},
   };
+  const branch=induction.branches[chosen.inlet];
+  if(spec.feedDeck && branch){
+    const profile=induction.profiles[chosen.inlet];
+    const lead=profile.duration-profile.timeAt(Math.max(0,branch.queueEnd-1.2));
+    cues.feed.time=mod(when(spec.right-join[0])-lead,cycle);
+  }
   function update(t) {
+    induction.updateBelts(t);
     for(const {route,length,box,offset} of transit){
       const half=box.userData.size[0]/2,u=mod(t*.78+offset,length+5);
       box.visible=u<length+2;
