@@ -431,7 +431,8 @@ try{
   assert(report.work.supply[2][1]-report.work.supply[0][1]>1.75);
   assert(report.work.supply.every(([fork,pallet])=>Math.abs(pallet-fork-1.94)<.001));
   const [pick,carry,placed,leave]=report.work.packing;
-  assert(pick.carton[0]-carry.carton[0]>.4 && Math.abs(carry.worker[0]-carry.carton[0]-.38)<.001);
+  assert(pick.carton[0]-carry.carton[0]>.4 && carry.worker[0]>carry.carton[0] && carry.worker[0]-carry.carton[0]<.78);
+  assert(carry.worker[2]>pick.worker[2]+.55,'搬箱应绕过来货托盘的前沿');
   assert(Math.abs(placed.carton[1]-report.work.deck-.05)<.001 && Math.abs(placed.carton[0]-report.work.landing[0])<.001);
   assert.deepEqual(placed.carton,leave.carton);
   await page.locator('[data-projection="3d"]').click();

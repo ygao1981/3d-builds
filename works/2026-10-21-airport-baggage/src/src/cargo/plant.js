@@ -284,7 +284,7 @@ export function createCargoPlant(data,scenes) {
   const sorting=sorterPlant(data.sorter,scenes,data.site),pallet=palletPlant(data.pallet,scenes);
   const dock=dockPlant(data.dock),tables=breakdownTables(data.tables);
   const nearChute=data.sorter.chutes[Math.floor(data.sorter.chutes.length/2)][1];
-  const chutePacking=createChutePacking(sorting,pallet,data);
+  const chutePacking=createChutePacking(sorting,pallet,data,scenes.worker);
   sorting.cues.stack={view:'chutes',focus:data.sorter.chutes.length,time:chutePacking.firstArrival-.8};
   return {sorting,pallet,dock,tables,chutePacking,dockOps:createDockOperations(dock,data.dock,scenes),
     packing:createPackingOperations(tables,data.tables,scenes,nearChute)};

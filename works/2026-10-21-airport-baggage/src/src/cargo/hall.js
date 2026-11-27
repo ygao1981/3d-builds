@@ -240,7 +240,7 @@ export function createHall(data,assets,texture,furniture){
     const platform=batch(serviceDeck);servicePlatform(platform,equipment.serviceDeck);
     platform.finish();group.add(serviceDeck);
   }
-  const inspection=createReceivingInspection(group,receipts,equipment?.sources,furniture);
+  const inspection=createReceivingInspection(group,receipts,equipment?.sources,furniture,assets.worker);
   const buffer=equipment?parcelBuffer(group,b,data.site,data.sorter,assets):null;
   b.finish();upper.finish();
   return {group,meter:receipts[0],receipts,additionalReceipts,inspection,operations,buffer,overhead,dockUpper,serviceDeck,bounds:[[x0,dockZ-apronDepth],[x1,z1]]};

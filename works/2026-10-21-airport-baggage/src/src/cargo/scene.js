@@ -1,6 +1,7 @@
 import * as T from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Line2 } from 'three/addons/lines/Line2.js';
@@ -9,6 +10,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import {createHall} from './hall.js';
 import { createCargoPlant } from './plant.js';
 import manifest from '../simready-assets.json';
+import workerAsset from './worker-asset.json';
 
 const rootUrl='/project-layout/';
 const cargoModels=manifest.models.filter(model=>model.projects.includes('cargo'));
@@ -61,7 +63,7 @@ function traces(data,plant) {
 }
 
 // All navigation targets come from the locally registered plan.
-export function targets(data,inspection) {
+export function targets(data,inspection,packing) {
   const sort=data.sorter, p=data.pallet, d=data.dock;
   const eq=data.site?.distributionEquipment;
   const floor=data.site?.floorOperations;
@@ -79,7 +81,9 @@ export function targets(data,inspection) {
       ...p.transfers.map((at,i)=>({label:'移载支路 '+(i+1),at,height:p.deck})),{label:'横向输送链',at:middle(p.transfers[0],p.transfers[p.turns.length+1]),height:p.chainDeck}],
     dock:[...d.levellers.map(item=>({label:item.id+' 调平台',at:item.at,height:.5})),
       ...d.handoffs.map((row,i)=>({label:'整板箱交接 '+(i+1),at:row[1],height:d.deck})),{label:'全部月台',wide:true}],
-    tables:data.tables.places.map(({at},i)=>({label:'图示台位 '+String(i+1).padStart(2,'0'),at,height:data.tables.height})).concat({label:'全部台位',wide:true}),
+    tables:data.tables.places.map(({at},i)=>({label:'图示台位 '+String(i+1).padStart(2,'0'),at,height:data.tables.height})).concat(
+      {label:'全部台位',wide:true},...(packing?[{label:'作业员组板',at:middle(packing.supply,packing.landing).map(v=>v+.42),
+        width:4.3,depth:3.1,height:.95,az:-.73,elevation:.26}]:[])),
     overview:[{label:'全站房物流范围',wide:true},{label:'空托盘原位剖视'},...(floor?[
       {label:'整板交接地轨',at:middle(floor.tracks[0].start,floor.tracks[1].end),width:20,depth:108,az:.50},
       {label:'AGV 暂存工位',at:floor.agv.at,width:26,depth:18,az:-.24},
@@ -119,7 +123,14 @@ export async function openCargo(canvas, onStatus) {
   Object.assign(sun.shadow.camera,{near:1,far:170,left:-43,right:43,top:43,bottom:-43});
   sun.shadow.camera.updateProjectionMatrix();sun.shadow.normalBias=.035;sun.shadow.bias=-.00018;
   scene.add(sun,sun.target,new T.HemisphereLight('#e3efff','#8d9587',.82));
-  const loaded=assets.filter(Boolean),models=Object.fromEntries(loaded),plant=createCargoPlant(data,models);
+  const models=Object.fromEntries(assets.filter(Boolean));
+  const texturesLoader=new KTX2Loader().setWorkerLimit(1).detectSupport(renderer);
+  try{
+    models.worker=(await loader.setKTX2Loader(texturesLoader).loadAsync('/'+workerAsset.file)).scene;
+  }catch(error){
+    console.warn('货站人物模型加载失败',error);
+  }finally{texturesLoader.dispose();}
+  const plant=createCargoPlant(data,models);
   const offsets={sorting:[0,0],pallet:data.pallet.offset,dock:data.dockOffset,tables:data.tables.offset,hall:[0,0]};
   const meshes={sorting:plant.sorting.group,pallet:plant.pallet.group,dock:plant.dock,tables:plant.tables};
   const hall=createHall(data,models,markings,furniture);
@@ -142,7 +153,8 @@ export async function openCargo(canvas, onStatus) {
   ctrl.maxDistance=420;ctrl.maxPolarAngle=Math.PI*.484;ctrl.enablePan=true;ctrl.target.set(0,0,0);
   let page='overview', key=page, layer='both', mode='3d', focus=-1;
   let camera=perspective, time=21, paused=false, speed=1, disposed=false, last, frameId;
-  const nav=targets(data,hall.inspection);
+  const nav=targets(data,hall.inspection,plant.packing);
+  plant.packing.cues.build.focus=nav.tables.length-1;
   const inspectionCue=hall.inspection && {view:'overview',focus:nav.overview.indexOf(hall.inspection.target),time:hall.inspection.time};
   const inOverview=()=>page==='overview' && mode==='3d';
   const keys=new Set(),step=new T.Vector3(),eyeFloor=.25;
@@ -197,6 +209,11 @@ export async function openCargo(canvas, onStatus) {
     const offset=offsets[k],local=(at,w,d,y)=>({at:at.map((p,i)=>p+offset[i]),w,d,y});
     const chosen=nav[key][focus];
     if(chosen && !chosen.wide){
+      if(key==='tables' && chosen.width){
+        // In portrait, frame the handling area so the carton and both hands remain legible.
+        const crop=T.MathUtils.clamp(canvas.clientWidth/Math.max(1,canvas.clientHeight),.52,1);
+        return local(chosen.at,chosen.width*crop,chosen.depth*crop,chosen.height);
+      }
       if(key==='pallet')return local(chosen.at,focus>=nav.pallet.length-1?9:6.8,5.4,chosen.height+.16);
       if(key==='chutes')return local(chosen.at,8,8,chosen.height);
       if(key==='sorting'){
@@ -377,14 +394,14 @@ export async function openCargo(canvas, onStatus) {
     renderer.render(scene,camera);positionTags();frameId=requestAnimationFrame(render);
   }
   show('overview','3d',data.site?.floorOperations?0:-1);frameId=requestAnimationFrame(render);
-  return {data,plant,hall,renderer,nav,show,tag,packingLabel,inspectionCue,missingCartons:cargoModels.filter(m=>m.id.startsWith('box_cardboard_') && !models[m.id]).length,get time(){return time;}, get view(){return page;},get mode(){return mode;},
+  return {data,plant,hall,renderer,nav,show,tag,packingLabel,inspectionCue,missingWorker:!models.worker,missingCartons:cargoModels.filter(m=>m.id.startsWith('box_cardboard_') && !models[m.id]).length,get time(){return time;}, get view(){return page;},get mode(){return mode;},
     setPaused(v){paused=v;},setSpeed(v){speed=v;},seek(t){time=t;},getCamera(){return camera;},getTarget(){return ctrl.target.clone();},
     dispose(){disposed=true;cancelAnimationFrame(frameId);observer.disconnect();ctrl.dispose();
       canvas.removeEventListener('keydown',keyDown);canvas.removeEventListener('keyup',keyUp);
       canvas.removeEventListener('blur',clearKeys);window.removeEventListener('blur',clearKeys);
       plant.sorting.disposeSection();
       const geometries=new Set(),materials=new Set(),textures=new Set();
-      scene.traverse(o=>{if(o.geometry)geometries.add(o.geometry);if(o.material)for(const m of [].concat(o.material)){materials.add(m);for(const v of Object.values(m))if(v?.isTexture)textures.add(v);}});
+      scene.traverse(o=>{if(o.isSkinnedMesh)o.skeleton.dispose();if(o.geometry)geometries.add(o.geometry);if(o.material)for(const m of [].concat(o.material)){materials.add(m);for(const v of Object.values(m))if(v?.isTexture)textures.add(v);}});
       geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());env.dispose();renderer.dispose();}
   };
 }

@@ -2,6 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import {Icon} from '../ui/icons.jsx';
 import {equipmentView,openCargo} from './scene.js';
 import manifest from '../simready-assets.json';
+import workerAsset from './worker-asset.json';
 import './cargo.css';
 
 const views=[
@@ -113,7 +114,9 @@ export default function CargoApp(){
         <Icon name={icon} size={20}/><span><strong>{name}</strong><small>{sub}</small></span></button>)}</nav>
       {detail && <section className="cargo-facts"><h3>设备资料</h3><dl>{detail.metrics.map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl><small>设备表　{detail.parts}</small>
         <details><summary>模型来源</summary><p>叉车、纸箱、货车内的木托盘和入口滚筒使用 NVIDIA SimReady 资产，由 CodePawl 转换。空托盘线采用设备表 N04 的平面塑料托盘。收货安检使用通用机体和项目工作台模型。货物摆放及作业节拍为演示设定。</p>
-          <a href={manifest.source.datasetUrl+'/tree/'+manifest.source.revision} target="_blank" rel="noreferrer">资产版本</a> · <a href={manifest.source.licenseUrl} target="_blank" rel="noreferrer">CC BY 4.0</a></details></section>}
+          <a href={manifest.source.datasetUrl+'/tree/'+manifest.source.revision} target="_blank" rel="noreferrer">设备资产版本</a> · <a href={manifest.source.licenseUrl} target="_blank" rel="noreferrer">CC BY 4.0</a>
+          <p>作业员使用 {workerAsset.creator} 制作的通用工装人物。搬运和复核动作按演示工位编排。</p>
+          <a href={workerAsset.source} target="_blank" rel="noreferrer">人物模型与授权（{workerAsset.license}）</a></details></section>}
     </aside>
     <main className="cargo-main"><canvas ref={canvas} tabIndex={data && panorama?0:-1} aria-label={panorama?'主站房全景自由视角':'货站物流设备三维视窗'}/>
       {detail && <div className="cargo-caption"><span>{detail.sheet.sheet}　·　1∶{detail.sheet.scale}</span><h2>{selection || (view==='overview' && mode==='3d'?'主站房作业联动':active[1])}</h2>
@@ -151,9 +154,10 @@ export default function CargoApp(){
       {mode==='3d' && replayCues && <div className="cargo-replay" role="group" aria-label="工艺动作回放">
         <span>动作回放</span>{Object.entries(replayCues).filter(([,cue])=>layer!=='upper' || cue.view==='sorting').map(([id,cue])=>
           <button type="button" key={id} data-cue={id} onClick={()=>replay(id,cue)}>{replayLabels[id]}</button>)}</div>}
-      {data && engine.current.missingCartons>0 && <div className="cargo-asset-notice" role="status">
-        有 {engine.current.missingCartons} 款纸箱未载入，正在使用已有纸箱演示。</div>}
-      {data && data.sorter.chuteFlat===undefined && !engine.current.missingCartons && <div className="cargo-asset-notice" role="status">当前载入旧版布局。更新项目配套资料后可查看本次复核的尺寸。</div>}
+      {data && (engine.current.missingCartons>0 || engine.current.missingWorker) && <div className="cargo-asset-notice" role="status">
+        {engine.current.missingCartons>0 && <>有 {engine.current.missingCartons} 款纸箱未载入，正在使用已有纸箱演示。</>}
+        {engine.current.missingWorker && <>作业员已用简化模型显示。补齐人物配套文件后可刷新查看完整人物。</>}</div>}
+      {data && data.sorter.chuteFlat===undefined && !engine.current.missingCartons && !engine.current.missingWorker && <div className="cargo-asset-notice" role="status">当前载入旧版布局。更新项目配套资料后可查看本次复核的尺寸。</div>}
       {(status && !data || error) && <div className="cargo-loading" role={error?'alert':'status'}>{error || status}
         {error && <button type="button" onClick={()=>location.reload()}>重新加载</button>}</div>}
     </main>

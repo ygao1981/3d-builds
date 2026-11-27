@@ -1,6 +1,7 @@
 import * as T from 'three';
 import {amber,batch,conveyor,dark,fitted,frame,lerp,metal,mod,side,steel,unitBox} from './hardware.js';
 import {scanner} from './induction.js';
+import {riggedOperator,walkingRoute} from './worker.js';
 
 const kraft=[metal('#bf9056',.91,0),metal('#ac7843',.91,0),metal('#cfaa78',.91,0)];
 const tape=metal('#dbb980',.74,.02),paper=metal('#ede9db',.91,0),rubber=metal('#252d31'),wood=metal('#896545');
@@ -186,7 +187,9 @@ export function createDockOperations(group,s,assets){
     raise:{view:'dock',focus:s.levellers.length,time:5},handoff:{view:'dock',focus:s.levellers.length,time:lifts[0].moveAt+15}}};
 }
 
-export function operator(parent){
+export function operator(parent,model){
+  if(model)return riggedOperator(parent,model);
+  // Older, offline companion packs can still show the activity with a simplified figure.
   const figure=new T.Group(),coat=metal('#df9e32',.83,0),trousers=metal('#344956',.88,0),skin=metal('#b98867',.85,0);
   const b=batch(figure);b.box(0,1.09,0,.37,.55,.24,coat);b.box(0,1.02,.003,.378,.061,.246,paper);
   for(const x of [-.105,.105]){b.box(x,.45,0,.155,.80,.185,trousers);b.box(x,.085,.03,.17,.13,.26,rubber);}
@@ -197,9 +200,10 @@ export function operator(parent){
     figure.add(...joints);return {sign,shoulder,joints};
   });
   parent.add(figure);
-  return {figure,hold(y,reach=.37){
+  return {figure,pose({height,reach,halfWidth,grip}){
+    const y=lerp(.83,height,grip),forward=lerp(.10,reach,grip);
     for(const {sign,shoulder,joints} of arms){
-      const elbow=new T.Vector3(sign*.234,(1.19+y)/2,reach*.42),hand=new T.Vector3(sign*.21,y,reach);
+      const elbow=new T.Vector3(sign*.234,(1.19+y)/2,forward*.42),hand=new T.Vector3(sign*lerp(.24,halfWidth,grip),y,forward);
       [elbow,hand].forEach((to,i)=>{const from=i?elbow:shoulder,obj=joints[i],delta=to.clone().sub(from);
         obj.position.copy(from).lerp(to,.5);obj.scale.y=delta.length()/.24;
         obj.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),delta.normalize());});
@@ -207,14 +211,15 @@ export function operator(parent){
   }};
 }
 
-export function createChutePacking(sorting,pallet,data){
+export function createChutePacking(sorting,pallet,data,workerModel){
   const group=new T.Group();sorting.group.add(group);
   const machine=pallet.movers[0],trip=machine.trips[0],port=trip.outlet;
   const tail=data.sorter.chutes[port][1],at=trip.stop.map((v,i)=>v+data.pallet.offset[i]);
   const top=data.pallet.deck+.145,destination=[at[0],top,at[1]];
   const candidates=sorting.arrivals.filter(e=>e.outlet===port).map(e=>{
     const parcel=e.box.clone(true);parcel.rotation.set(0,0,0);parcel.visible=false;group.add(parcel);
-    return {...e,parcel};
+    const path=walkingRoute([[tail[0]+.76,tail[1]-e.box.userData.size[2]/2],[at[0]+.76,at[1]]]);
+    return {...e,parcel,path};
   });
   function next(start){
     let chosen,best=Infinity;
@@ -224,7 +229,7 @@ export function createChutePacking(sorting,pallet,data){
     }
     return {event:chosen,at:best};
   }
-  const worker=operator(group);worker.figure.rotation.y=-Math.PI/2;
+  const worker=operator(group,workerModel);worker.figure.rotation.y=-Math.PI/2;
   function update(time){
     const local=mod(time+machine.offset,machine.cycle);
     const {event,at:arrival}=next(time-local+trip.finish+.20);
@@ -240,12 +245,14 @@ export function createChutePacking(sorting,pallet,data){
       if(age<.86)event.box.visible=false;
       event.parcel.position.set(x,y,z);
     }
-    const stepBack=ready?phase(age,6.6,10):0,feet=x+.83;
-    worker.figure.position.set(feet,0,lerp(z,startZ,stepBack));
-    worker.hold(lerp(y+sz[1]*.48,1.05,stepBack),lerp(.83-sz[0]/2,.32,stepBack));
+    const progress=ready?carry*(1-phase(age,6.6,10)):0;
+    event.path.getPoint(progress,worker.figure.position);
+    const grip=ready?phase(age,0,.45)*(1-phase(age,6.4,7.1)):0;
+    worker.pose({time,height:y+sz[1]*.48,reach:.76-Math.min(.095,sz[0]*.23),halfWidth:sz[2]/2,
+      grip,path:event.path,progress});
   }
   const firstArrival=next(trip.finish-machine.offset+.20).at;
-  return {group,update,firstArrival,port,candidates,destination};
+  return {group,worker,update,firstArrival,port,candidates,destination};
 }
 
 export function createPackingOperations(group,s,assets,nearChute){
@@ -269,12 +276,17 @@ export function createPackingOperations(group,s,assets,nearChute){
   palletBase(pallet,0,0,0,.97,1.10);
   for(let k=0;k<2;k++)carton(pallet,0,.145+k*.35,0,.82,.34,.83,k);
   pallet.finish();group.add(delivery);
-  const worker=operator(group),box=fitted(assets.box_cardboard_a01,.49,.39,.42,true);
+  const worker=operator(group,assets.worker),box=fitted(assets.box_cardboard_a01,.49,.39,.42,true);
   group.add(box);
   const vehicle=forkTruck(assets);
   vehicle.position.set(supply[0],0,supply[1]-1.96);group.add(vehicle);
   b.finish();
   const yaw=-Math.PI/2,size=box.userData.size;
+  // Step around the delivery pallet, then approach the open corner of the build-up table.
+  const pickReach=.76,placeReach=.68;
+  const aisle=walkingRoute([[supply[0]+pickReach,supply[1]],[supply[0]+pickReach,supply[1]+.91],
+    [landing[0]+placeReach,landing[1]+.91],[landing[0]+placeReach,landing[1]]]);
+  const carryingPoint=new T.Vector3();worker.figure.rotation.y=yaw;
   const pickupZ=Math.min(supply[1]-1.8,nearChute[1]-s.offset[1]+2.15);
   function update(time){
     const cycle=mod(time,35),t=T.MathUtils.clamp(cycle-9,0,18);
@@ -283,16 +295,16 @@ export function createPackingOperations(group,s,assets,nearChute){
     vehicle.position.set(supply[0],0,delivery.position.z-1.94-2.05*retreat);
     vehicle.userData.setForkHeight(delivery.position.y+.1065-.035*retreat);
     const walk=phase(t,3,9),back=phase(t,12.5,17.9);
-    const x=lerp(supply[0],landing[0],walk),z=lerp(supply[1],landing[1],walk);
+    const reach=lerp(pickReach,placeReach,walk)-.18*Math.sin(Math.PI*walk);
+    aisle.getPoint(walk,carryingPoint);
     const y=lerp(.845,1.01,phase(t,1.2,3))+(surface-1.01)*phase(t,9,11.5);
-    box.position.set(x,y+(1-walk)*delivery.position.y,z+(cycle<9?delivery.position.z-supply[1]:0));
-    const g=worker.figure;g.rotation.y=yaw;
-    const footX=x+.38+(supply[0]-landing[0])*back;
-    g.position.set(footX,0,z);
-    // Worker lowers torso while placing this carton onto the board.
-    const crouch=.53*phase(t,8.7,11.5)*(1-phase(t,12,13.4));
-    g.scale.y=1-crouch;
-    worker.hold((y+size[1]*.46)/g.scale.y);
+    box.position.set(carryingPoint.x-reach,y+(1-walk)*delivery.position.y,
+      carryingPoint.z+(cycle<9?delivery.position.z-supply[1]:0));
+    const progress=walk-back;
+    aisle.getPoint(progress,worker.figure.position);
+    const grip=phase(cycle,8.0,10.15)*(1-phase(t,11.55,12.5));
+    worker.pose({time,height:box.position.y+size[1]*.47,reach:reach-Math.min(.09,size[0]*.22),
+      halfWidth:size[2]/2,grip,path:aisle,progress});
   }
   return {active,supply,landing,vehicle,delivery,box,worker,update,cues:{supply:{view:'tables',focus:active,time:.7},build:{view:'tables',focus:active,time:11.1}}};
 }

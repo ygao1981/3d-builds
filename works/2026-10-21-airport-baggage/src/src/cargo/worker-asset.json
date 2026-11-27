@@ -1,0 +1,12 @@
+{
+  "id": "road-worker-v1",
+  "file": "people/road-worker-v1.glb",
+  "libraryFile": "characters/tevy/road-worker/v1/lod0.glb",
+  "creator": "tevy",
+  "source": "https://tevy.dev/models/road-worker",
+  "url": "https://tevy.dev/models/road-worker/v1/lod0.glb",
+  "license": "CC0 1.0",
+  "bytes": 1637752,
+  "sha256": "5848e10e10f67492467ac8186e99b95f40594e33966de255ed8a83192afd1ae5",
+  "optional": true
+}

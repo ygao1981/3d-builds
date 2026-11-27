@@ -35,7 +35,7 @@ function reviewDisplay(desk){
 }
 
 // A representative cargo X-ray workstation uses the existing logistics interfaces as its display area.
-export function createReceivingInspection(parent,receipts,sources,furniture){
+export function createReceivingInspection(parent,receipts,sources,furniture,workerModel){
   const index=Math.floor(receipts.length/2),line=receipts[index],exit=sources?.[index]?.[0];
   if(!line || !exit)return null;
   const x0=line.at[0],z0=line.at[1]+line.end,dx=exit[0]-x0,dz=exit[1]-z0;
@@ -111,7 +111,7 @@ export function createReceivingInspection(parent,receipts,sources,furniture){
   }
   const desk=bench('review_desk',-2.78,centre-.48,'判图台'),display=reviewDisplay(desk);
   const table=bench('search_table',3.55,centre+.98,'人工复核台');
-  const worker=operator(group);worker.figure.position.set(table.position.x,0,table.position.z+.77);
+  const worker=operator(group,workerModel);worker.figure.position.set(table.position.x,0,table.position.z+.77);
   worker.figure.rotation.y=Math.PI;
   // An open carton on the work surface distinguishes manual checking from reading an image.
   const bx=table.position.x,bz=table.position.z+.10,base=.925;
@@ -139,7 +139,7 @@ export function createReceivingInspection(parent,receipts,sources,furniture){
     const lift=T.MathUtils.smoothstep(cycle,1.1,3.2)*(1-T.MathUtils.smoothstep(cycle,4.8,6.9));
     if(lift!==lastLift){
       checkedItem.position.y=base+.03+.36*lift;
-      worker.hold(checkedItem.position.y+.10,worker.figure.position.z-checkedItem.position.z);
+      worker.pose({time,height:checkedItem.position.y+.10,reach:worker.figure.position.z-checkedItem.position.z-.045,halfWidth:.20,grip:1});
       lastLift=lift;
     }
     const angles=[-half,half].map(z=>{
@@ -156,7 +156,7 @@ export function createReceivingInspection(parent,receipts,sources,furniture){
   }
   line.outfeed={length,update};update(line.item,-1,0);
   const at=[x0+ux*centre+.45*uz,z0+uz*centre-.45*ux];
-  return {group,machine,desk,table,checkedItem,curtains,line,length,centre,half,heightAt,
+  return {group,machine,desk,table,worker,checkedItem,curtains,line,length,centre,half,heightAt,
     target:{label:'收货安检',at,width:11.3,depth:7.3,height:2.65,az:yaw+2.84,elevation:.47},
     time:line.timeAt(line.end+centre-half-1.35)};
 }
