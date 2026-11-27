@@ -49,6 +49,7 @@ function traces(data,plant) {
 export function targets(data) {
   const sort=data.sorter, p=data.pallet, d=data.dock;
   const eq=data.site?.distributionEquipment;
+  const floor=data.site?.floorOperations;
   const details=eq?[
     {label:'排队与供包接头',at:data.site.branches[1].at(-1),height:sort.deck,width:11,az:1.18},
     {label:'分配线末端滑板',at:eq.slide[0].slice(0,2),height:eq.slide[0][2],width:14,az:1.13},
@@ -64,7 +65,12 @@ export function targets(data) {
     dock:[...d.levellers.map(item=>({label:item.id+' 调平台',at:item.at,height:.5})),
       ...d.handoffs.map((row,i)=>({label:'整板箱交接 '+(i+1),at:row[1],height:d.deck})),{label:'全部月台',wide:true}],
     tables:data.tables.places.map(({at},i)=>({label:'图示台位 '+String(i+1).padStart(2,'0'),at,height:data.tables.height})).concat({label:'全部台位',wide:true}),
-    overview:[{label:'全站房物流范围',wide:true},{label:'空托盘原位剖视'}],
+    overview:[{label:'全站房物流范围',wide:true},{label:'空托盘原位剖视'},...(floor?[
+      {label:'整板交接地轨',at:middle(floor.tracks[0].start,floor.tracks[1].end),width:20,depth:108,az:.50},
+      {label:'AGV 暂存工位',at:floor.agv.at,width:26,depth:18,az:-.24},
+      {label:'待运区与复重秤',at:floor.apronFocus,width:92,depth:34,az:.12},
+      {label:'利旧作业平台',at:middle(...floor.existing.deck),width:19,depth:33,az:.68}
+    ]:[])],
   };
 }
 
@@ -122,6 +128,8 @@ export async function openCargo(canvas, onStatus) {
   function extent() {
     const k=activeRegion(),r=refs(data)[k];
     if(k==='overview'){
+      const station=nav.overview[focus];
+      if(mode==='3d' && station?.at)return {at:station.at,w:station.width,d:station.depth,y:.8};
       if(mode==='3d' && focus===1){
         const p=data.pallet,mid=middle(p.turns[0],p.tails[Math.floor(p.tails.length/2)]);
         return {at:mid.map((v,i)=>v+p.offset[i]),w:distanceX(p.inlets.map(a=>[a]))+8,d:22,y:1.16};
@@ -189,6 +197,7 @@ export async function openCargo(canvas, onStatus) {
     lowerInk.transparent=showLower;lowerInk.opacity=showLower?.72:1;
     if(drawings.hall)drawings.hall.visible=!view3d && k!=='pallet';
     hall.group.visible=view3d;hall.overhead.visible=k==='overview' && focus===0;hall.dockUpper.visible=k!=='dock';
+    if(hall.operations)hall.operations.lettering.visible=k==='overview' && (focus<1 || focus===4);
     scene.background.set(view3d?'#a9bab9':'#f2f4f1');
     camera=mode==='3d'?perspective:ortho;ctrl.object=camera;ctrl.enableRotate=mode==='3d';
     ctrl.mouseButtons.LEFT=mode==='3d'?T.MOUSE.ROTATE:T.MOUSE.PAN;
@@ -197,8 +206,9 @@ export async function openCargo(canvas, onStatus) {
     ctrl.enableDamping=false;ctrl.update();ctrl.enableDamping=true;
     const ex=extent(),[x,z]=ex.at;resize();
     if(mode==='3d'){
-      const az=nav[key][focus]?.az ?? (key==='overview'?(focus===1?-.50:perspective.aspect<.8?-1.34:-.18):key==='dock'?2.46:key==='tables'?.49:key==='pallet'?-.61:.37);
-      const angle=key==='overview'?(focus===1?.47:.81):key==='dock'?.70:key==='tables'?.62:key==='pallet'?(focus<0?.89:.56):.70;
+      const fullFloor=key==='overview' && focus===0 && !!hall.operations;
+      const az=nav[key][focus]?.az ?? (key==='overview'?(focus===1?-.50:perspective.aspect<.8?(fullFloor?-Math.PI/2:-1.34):fullFloor?-.055:-.18):key==='dock'?2.46:key==='tables'?.49:key==='pallet'?-.61:.37);
+      const angle=key==='overview'?(focus===1?.47:fullFloor?.68:.81):key==='dock'?.70:key==='tables'?.62:key==='pallet'?(focus<0?.89:.56):.70;
       const horizontal=ex.w*Math.abs(Math.cos(az))+ex.d*Math.abs(Math.sin(az));
       const depth=ex.w*Math.abs(Math.sin(az))+ex.d*Math.abs(Math.cos(az));
       const fit=Math.max(horizontal/perspective.aspect,depth*Math.sin(angle));
@@ -210,9 +220,10 @@ export async function openCargo(canvas, onStatus) {
           const across=dx*Math.cos(az)-dz*Math.sin(az),along=dx*Math.sin(az)+dz*Math.cos(az);
           const elevation=dy*Math.cos(angle)-along*Math.sin(angle);
           const toward=dy*Math.sin(angle)+along*Math.cos(angle);
-          distance=Math.max(distance,toward+Math.max(Math.abs(across)/(tangent*perspective.aspect*.92),Math.abs(elevation)/(tangent*.82)));
+          distance=Math.max(distance,toward+Math.max(Math.abs(across)/(tangent*perspective.aspect*(fullFloor?.96:.92)),Math.abs(elevation)/(tangent*(fullFloor?.91:.82))));
         }
       }
+      ctrl.maxDistance=fullFloor?Math.max(420,distance*1.15):420;
       camera.near=Math.max(.045,distance/135);camera.far=distance+450;camera.updateProjectionMatrix();
       camera.up.set(0,1,0);camera.position.set(x+Math.sin(az)*distance*Math.cos(angle),ex.y+distance*Math.sin(angle),z+Math.cos(az)*distance*Math.cos(angle));
       ctrl.target.set(x,ex.y,z);
@@ -237,6 +248,8 @@ export async function openCargo(canvas, onStatus) {
     pallet:[...data.pallet.tails.at(-1).map((n,i)=>n+offsets.pallet[i]),data.pallet.deck+.18],
     tables:[...data.tables.places.at(-1).at.map((n,i)=>n+offsets.tables[i]),2.4],
     ...(data.site?{meter:[...data.site.receipt,2.1]}:{}),
+    ...(data.site?.floorOperations?{tracks:[...nav.overview[2].at,.15],agv:[...nav.overview[3].at,.6],
+      apron:[...nav.overview[4].at,1.2],legacy:[...nav.overview[5].at,.56]}:{}),
   };
   const packingLabel=plant.packing.active;
   labels.tables=[...data.tables.places[packingLabel].at.map((n,i)=>n+offsets.tables[i]),2.1];
@@ -266,10 +279,14 @@ export async function openCargo(canvas, onStatus) {
       if(meshes.pallet.visible)plant.pallet.update(time);
       if(meshes.sorting.visible)plant.chutePacking.update(time);
       plant.dockOps.update(time);plant.packing.update(time);hall.receipts.forEach(unit=>unit.update(time));
+      hall.additionalReceipts.forEach(unit=>unit.update(time));
     }
-    ctrl.update();renderer.render(scene,camera);positionTags();frameId=requestAnimationFrame(render);
+    ctrl.update();
+    if(mode==='3d' && hall.operations?.lettering.visible)
+      hall.operations.orientLabels(camera,ctrl.getAzimuthalAngle(),Math.cos(ctrl.getPolarAngle()),canvas.clientHeight);
+    renderer.render(scene,camera);positionTags();frameId=requestAnimationFrame(render);
   }
-  show();frameId=requestAnimationFrame(render);
+  show('overview','3d',data.site?.floorOperations?0:-1);frameId=requestAnimationFrame(render);
   return {data,plant,hall,renderer,nav,show,tag,packingLabel,missingCartons:cargoModels.filter(m=>m.id.startsWith('box_cardboard_') && !models[m.id]).length,get time(){return time;}, get view(){return key;},get mode(){return mode;},
     setPaused(v){paused=v;},setSpeed(v){speed=v;},seek(t){time=t;},getCamera(){return camera;},getTarget(){return ctrl.target.clone();},
     dispose(){disposed=true;cancelAnimationFrame(frameId);observer.disconnect();ctrl.dispose();

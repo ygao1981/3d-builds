@@ -19,6 +19,50 @@ try{
   assert.equal(await page.evaluate(()=>window.__cargo.view),'overview');
   await shot('01-hall');
   const distance=()=>page.evaluate(()=>window.__cargo.getCamera().position.distanceTo(window.__cargo.getTarget()));
+  const overview=page.getByRole('combobox',{name:'总览范围'});
+  if(await page.evaluate(()=>!!window.__cargo.data.site?.floorOperations)){
+    assert.equal(await overview.inputValue(),'0');
+    report.hallFloor=await page.evaluate(()=>{
+      const c=window.__cargo,{hall,data}=c,f=data.site.floorOperations,matrix=hall.group.matrix.clone();
+      const boxes=[];
+      hall.group.traverse(m=>{
+        if(!m.isInstancedMesh || m.geometry.type!=='BoxGeometry')return;
+        for(let i=0;i<m.count;i++){
+          m.getMatrixAt(i,matrix);const a=matrix.elements;
+          boxes.push([a[12],a[13],a[14],a[0],a[5],a[10]]);
+        }
+      });
+      const matches=(p)=>boxes.some(b=>p.every((v,i)=>v===null || Math.abs(b[i]-v)<.002));
+      const tracks=hall.operations.tracks.map((pair,i)=>{
+        const last=data.dock.handoffs[i].at(-1).map((n,j)=>n+data.dockOffset[j]);
+        return {gauge:Math.abs(pair[1].position.x-pair[0].position.x),lengths:pair.map(m=>m.geometry.parameters.depth),
+          startError:Math.hypot((pair[1].position.x+pair[0].position.x)/2-last[0],pair[0].position.z-pair[0].geometry.parameters.depth/2-last[1])};
+      });
+      const stands=f.agv.stands.filter(({at:[x,z],turned})=>{
+        const w=turned?1.03:1.21,d=turned?1.21:1.03;
+        return [-1,1].every(i=>[-1,1].every(j=>matches([x+i*(w/2-.07),.23,z+j*(d/2-.07),.12,.46,.12])));
+      }).length;
+      return {tracks,stands,transfer:f.agv.handover.filter(([x,z])=>matches([x,.39,z,1.4,.12,2])).length,
+        mobile:f.agv.vehicles.filter(({at:[x,z],alongZ})=>matches([x,.13,z,alongZ?.72:.88,.19,alongZ?.88:.72])).length,
+        booths:f.booths.filter(([[x,z],[xx,zz]])=>matches([(x+xx)/2,1.53,(z+zz)/2,xx-x,2.72,zz-z])).length,
+        tow:matches([f.tow.tractor[0],.52,f.tow.tractor[1],4.35,.49,2.48]),
+        dollies:f.tow.dollies.filter(([x,z])=>matches([x,.49,z,3.45,.23,3.22])).length,
+        slots:f.existing.positions.length,reweigh:data.site.reweigh.length,
+        receiptLines:hall.receipts.length+hall.additionalReceipts.length,
+        inside:f.apronBays.every(b=>b.outline.every(([x,z])=>x>=hall.bounds[0][0] && x<=hall.bounds[1][0] && z<=hall.bounds[1][1])),
+        overviewTargets:c.nav.overview.map(t=>t.label)};
+    });
+    const f=report.hallFloor;
+    assert.equal(f.tracks.length,2);assert(f.tracks.every(t=>t.startError<.001 && t.gauge===2.5 && t.lengths.every(l=>Math.abs(l-100.5)<.00001)));
+    assert.deepEqual([f.stands,f.transfer,f.mobile,f.booths,f.tow,f.dollies,f.slots,f.reweigh,f.receiptLines,f.inside],[43,2,7,6,true,4,6,4,9,true]);
+    for(const [label,metric] of [['整板交接地轨','100.5 m'],['AGV 暂存工位','43 位'],['待运区与复重秤','6 组'],['利旧作业平台','6 处']]){
+      await overview.selectOption({label});await frame();
+      assert.equal(await page.locator('.cargo-caption h2').innerText(),label);
+      assert((await page.locator('.cargo-facts').innerText()).includes(metric));
+      await shot(label.replace(' ',''));
+    }
+  }
+  await overview.selectOption('-1');
   const close=await distance();
   await page.getByRole('combobox',{name:'总览范围'}).selectOption('0');await shot('01b-entire-hall');
   report.cameras={work:close,whole:await distance()};assert(report.cameras.whole>close*1.4);
@@ -285,6 +329,13 @@ try{
   await page.locator('[data-area="overview"]').click();
   await page.setViewportSize({width:390,height:844});await shot('12-mobile');
   assert(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth));
+  if(report.hallFloor){
+    report.mobileExtent=await page.evaluate(()=>{
+      const c=window.__cargo,cam=c.getCamera(),[[left,front],[right,back]]=c.hall.bounds;
+      return [left,right].flatMap(x=>[front,back].map(z=>cam.position.clone().set(x,0,z).project(cam).toArray().slice(0,2)));
+    });
+    assert(report.mobileExtent.flat().every(v=>Math.abs(v)<1),'全场范围应在窄屏内完整显示');
+  }
   const old=await browser.newPage();
   await old.route('**/project-layout/layout.json',async route=>{
     const response=await route.fetch(),data=await response.json();delete data.site;

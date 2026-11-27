@@ -296,13 +296,13 @@ export function createPackingOperations(group,s,assets,nearChute){
   return {active,supply,landing,vehicle,delivery,box,worker,update,cues:{supply:{view:'tables',focus:active,time:.7},build:{view:'tables',focus:active,time:11.1}}};
 }
 
-export function fitReceipt(group,at,assets,extension=0,index=0,dockZ=0){
+export function fitReceipt(group,at,assets,extension=0,index=0,dockZ=0,parkedTruck=true){
   const b=batch(group),[x,z]=at,w=.8,h=.8;
   const start=extension?-11.8-extension:-3.3,end=extension?2.4:3.2;
   const spans=extension?[[-11.8,-4.8],[-4.8,-2.8],[-2.8,-.8],[-.8,.8],[.8,end]]:[[-3.3,-1],[-1,-.8],[-.8,.8],[.8,end]];
   for(const [a,c] of spans)conveyor(b,[x,z+a],[x,z+c],h,h,w);
   if(extension){
-    // H01/H02/H03 have a 7 m fixed body. The three nested stages share a belt.
+    // Three nested stages extend the fixed receiving body toward the dock.
     const step=extension/3;
     for(let j=0;j<3;j++){
       const nose=-11.8-(j+1)*step;
@@ -311,7 +311,7 @@ export function fitReceipt(group,at,assets,extension=0,index=0,dockZ=0){
     }
     for(const sign of [-1,1])b.box(x+sign*.58,h-.20,z-8.3,.115,.23,7,side);
     b.roller([x-.39,h-.034,z+start+.033],[x+.39,h-.034,z+start+.033],.034);
-    if(z+start<dockZ-.35)truck(b,x,0,dockZ-.18,paint[index%paint.length]);
+    if(parkedTruck && z+start<dockZ-.35)truck(b,x,0,dockZ-.18,paint[index%paint.length]);
   }
   scanner(b,x,z-.82,h,w,true);
   for(const sign of [-1,1]){

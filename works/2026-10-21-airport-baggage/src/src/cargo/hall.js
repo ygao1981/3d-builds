@@ -1,6 +1,7 @@
 import * as T from 'three';
 import {amber,batch,dark,frame,metal,platform,side,steel} from './hardware.js';
 import {dressStaging,fitReceipt,parcelBuffer} from './workcells.js';
+import {createFloorOperations} from './floor-operations.js';
 
 const concrete=metal('#97a49f',.92,.01),fascia=metal('#53666d',.76,.25),wall=metal('#c8ceca',.80,.11);
 const pale=metal('#e4ddbf',.88,0),glazing=metal('#62818a',.28,.55),ochre=metal('#d5a23c',.79,.09);
@@ -88,7 +89,7 @@ function servicePlatform(b,outline){
 }
 export function createHall(data,assets,texture){
   const group=new T.Group(),b=batch(group),[[x0,z0],[x1,z1]]=workingBounds(data),w=x1-x0,d=z1-z0;
-  const mx=(x1+x0)/2;
+  const mx=(x1+x0)/2,floor=data.site?.floorOperations,wallEnd=floor?.hallEnd??z1;
   const dockUpper=new T.Group(),upper=batch(dockUpper);group.add(dockUpper);
   const bays=data.dock.levellers.map(t=>({id:t.id,x:t.at[0]+data.dockOffset[0],z:t.at[1]+data.dockOffset[1]}));
   const dockZ=bays[0].z-data.dock.levelSize[1]/2;
@@ -112,7 +113,7 @@ export function createHall(data,assets,texture){
   }
   slab(slabLeft,x1,dockZ,z1);
   const contextPaint=metal('#a0adab',.96,.02),hatching=metal('#8b9e9b',.97,.01);
-  for(const [[a,c],[v,f]] of data.site?.contextZones||[]){
+  for(const [[a,c],[v,f]] of floor?[]:data.site?.contextZones||[]){
     surface(group,[[a,c],[v,c],[v,f],[a,f]],contextPaint);
     const depth=f-c;
     for(let off=-depth;off<v-a;off+=1.65){
@@ -141,12 +142,14 @@ export function createHall(data,assets,texture){
     b.box((left+x1)/2,-.021,z,x1-left,.016,.017,joint);
   }
   if(texture && data.site){
+    texture.colorSpace=T.SRGBColorSpace;texture.anisotropy=8;
     const r=data.site.reference;const mesh=new T.Mesh(new T.PlaneGeometry(r.width,r.depth),
-      new T.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false,opacity:.7,toneMapped:false}));
-    mesh.rotation.x=-Math.PI/2;mesh.position.set(r.centre[0],.006,r.centre[1]);group.add(mesh);
+      new T.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false,opacity:floor?.95:.7,toneMapped:false}));
+    mesh.rotation.x=-Math.PI/2;mesh.position.set(r.centre[0],.012,r.centre[1]);group.add(mesh);
   }
   const equipment=data.site?.distributionEquipment;
   const receiptDoors=(equipment?.receipts||[]).map(([x],i)=>({id:'收货 '+(i+1),x,width:3.1}));
+  for(const unit of floor?.receipts||[])receiptDoors.push({id:unit.id+' 收货',x:unit.at[0],width:3.1});
   const gates=[...bays.map(b=>({...b,width:3.25})),...data.dock.handoffs.map((row,i)=>({id:'交接 '+(i+1),x:row[0][0]+data.dockOffset[0],width:3.60})),...receiptDoors].sort((a,c)=>a.x-c.x);
   function rearWall(a,c){
     if(c<=a)return;
@@ -173,13 +176,13 @@ export function createHall(data,assets,texture){
   upper.box(mx,5.48,dockZ,w,.21,.31,fascia);
   for(let x=x0+.5;x<=x1;x+=4.1)upper.box(x,4.96,dockZ,.095,.93,.22,wall);
   for(const x of [x0,x1]){
-    b.box(x,.46,(dockZ+z1)/2,.22,.92,z1-dockZ,wall);
-    b.box(x,.94,(dockZ+z1)/2,.34,.085,z1-dockZ,fascia);
+    b.box(x,.46,(dockZ+wallEnd)/2,.22,.92,wallEnd-dockZ,wall);
+    b.box(x,.94,(dockZ+wallEnd)/2,.34,.085,wallEnd-dockZ,fascia);
   }
   for(const x of [x0,x1]){
     const sign=x===x0?1:-1;
-    for(let a=dockZ;a<z1-6;a+=12){
-      const end=Math.min(a+12,z1-6),height=a<dockZ+30?5.30:a<dockZ+62?3.45:1.35;
+    for(let a=dockZ;a<wallEnd-6;a+=12){
+      const end=Math.min(a+12,wallEnd-6),height=a<dockZ+30?5.30:a<dockZ+62?3.45:1.35;
       b.box(x,height/2,(a+end)/2,.18,height,end-a,wall);
       b.box(x+sign*.10,.50,(a+end)/2,.06,.42,end-a,fascia);
       if(height>2){
@@ -237,6 +240,8 @@ export function createHall(data,assets,texture){
   }
   const receipts=equipment?.receipts?equipment.receipts.map((at,i)=>fitReceipt(group,at,assets,[3.15,.80,2.65][i],i,dockZ)):
     data.site?[fitReceipt(group,data.site.receipt,assets)]:[];
+  const additionalReceipts=(floor?.receipts||[]).map(({at,extension},i)=>fitReceipt(group,at,assets,extension,i+3,dockZ,false));
+  const operations=floor?createFloorOperations(group,b,floor,data.site.bounds):null;
   if(equipment?.serviceDeck)servicePlatform(b,equipment.serviceDeck);
   if(equipment?.receipts){
     const first=receipts[0],last=receipts.at(-1),left=first.at[0]-.68,right=last.at[0]+.68;
@@ -262,5 +267,5 @@ export function createHall(data,assets,texture){
   }
   const buffer=equipment?parcelBuffer(group,b,data.site,data.sorter,assets):null;
   b.finish();upper.finish();
-  return {group,meter:receipts[0],receipts,buffer,overhead,dockUpper,bounds:[[x0,dockZ-apronDepth],[x1,z1]]};
+  return {group,meter:receipts[0],receipts,additionalReceipts,operations,buffer,overhead,dockUpper,bounds:[[x0,dockZ-apronDepth],[x1,z1]]};
 }

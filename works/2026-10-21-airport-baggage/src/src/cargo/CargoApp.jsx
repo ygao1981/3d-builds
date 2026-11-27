@@ -20,6 +20,14 @@ function describe(key,d,selection){
   const eq=d.site?.distributionEquipment;
   if(key==='overview' && selection==='空托盘原位剖视')return {...describe('pallet',d),note:'环线和滑槽淡化后，可在主站房原位看到拆盘机、旋转台、横向输送链和九条移载支路。'};
   if(key==='sorting' && selection==='收货扫码称重')return {sheet:d.site.reference,parts:eq?.receipts?'PR0020-F1004 至 F1007':d.site.receiptParts||'PR0020-F1004',note:'收货线将散件送过三面读码与体积测量装置，再由称重皮带计量。',metrics:[['条码识读','三面'],['称重皮带','1.60 × 0.80 m'],['输送面高度','0.80 m']]};
+  if(key==='overview' && d.site?.floorOperations){
+    const f=d.site.floorOperations,sheet=d.site.reference;
+    if(selection==='整板交接地轨')return {sheet,parts:'PR0020-1001、F1013',note:'从两条整板交接辊道末端沿地面看，两组地轨基础一直延伸到待运区。',metrics:[['地轨基础',f.tracks.length+' 组'],['每组图注长度','100.5 m'],['图注间距','2.50 m']]};
+    if(selection==='AGV 暂存工位')return {sheet,parts:'PR0020-F1018',note:'三排主货架和侧边交接位紧邻暂存皮带。潜伏式 AGV 可进入货架底部。车辆按平面图的停放位置展示。',metrics:[['图示货架',f.agv.stands.length+' 位'],['侧向交接位',f.agv.handover.length+' 位'],['图示 AGV',f.agv.vehicles.length+' 台']]};
+    if(selection==='待运区与复重秤')return {sheet,parts:'PR0020-F1022、F1023',note:'圆角边线圈出图示理货和待运范围。复重秤旁是磅房和业务用房，场坪上保留拖车停靠位置与作业空间。',metrics:[['复重秤',d.site.reweigh.length+' 台'],['相邻用房',f.booths.length+' 组'],['图示拖斗',f.tow.dollies.length+' 节']]};
+    if(selection==='利旧作业平台')return {sheet,parts:'PR0020-1001 利旧设备图层',note:'平台一侧为滚珠台面，上有六处图示摆位。台面外形按平面图定位，高度与滚珠外观用于演示。',metrics:[['平台','1 处'],['台面图示摆位',f.existing.positions.length+' 处']]};
+    return {sheet,parts:'PR0020-1001、F1013、F1018、F1022',note:'两组地轨从整板交接辊道延伸至场坪。理货、待运区域按图保留作业空间。斜线区只展开到工艺占地。点场内标签可放大各工位。',metrics:[['装卸月台',d.dock.levellers.length+' 处'],['打板台位',d.tables.places.length+' 处'],['空托盘支路',d.pallet.tails.length+' 路']]};
+  }
   if(key==='sorting' && eq){
     if(selection==='排队与供包接头')return {sheet:d.sorter.reference,parts:'PR0020-F1009 至 F1011、F1013',note:'包裹从分配主线转入排队皮带。排队带末端斜切，整幅承载面贴到五段供包台侧边，包裹在接缝上转向。',metrics:[['供包支路',d.sorter.feeds.length+' 路'],['排队皮带宽','1.20 m'],['排队带高度','3.55 m']]};
     if(selection==='分配线末端滑板')return {sheet:d.sorter.reference,parts:'PR0020-F1009',note:'分配线的最后一段接 D01-022 小滑板。旁边较低的平行带承接来件，两条带在另一端折返。',metrics:[['设备编号','D01-022'],['滑板长 × 宽','0.90 × 1.20 m'],['入口 / 出口','3.55 / 3.08 m']]};
@@ -44,11 +52,11 @@ export default function CargoApp(){
     openCargo(canvas.current,s=>active && setStatus(s)).then(value=>{
       scene=value;if(!active){scene.dispose();return;}
       engine.current=value;window.__cargo=value;document.title=value.data.title+' · 货站工艺演示';
-      setData(value.data);setStatus('');
+      setData(value.data);setFocus(value.hall.operations?0:-1);setStatus('');
     }).catch(e=>{if(active){console.error(e);setError(e.message.includes('布局') || e.message.includes('尚未配置')?e.message:'设备模型或图纸加载失败。请检查本地资料并确认浏览器已启用图形加速。');}});
     return ()=>{active=false;scene?.dispose();if(window.__cargo===scene)delete window.__cargo;};
   },[]);
-  function show(v=view,m=mode,i=-1){engine.current?.show(v,m,i);setView(v);setMode(m);setFocus(i);if(capture)setFilmAction('');}
+  function show(v=view,m=mode,i=(v==='overview' && m==='3d' && engine.current?.hall.operations?0:-1)){engine.current?.show(v,m,i);setView(v);setMode(m);setFocus(i);if(capture)setFilmAction('');}
   const machines=engine.current?.plant;
   const replayCues=({pallet:machines?.pallet,sorting:machines?.sorting,chutes:machines?.sorting,dock:machines?.dockOps,tables:machines?.packing})[view]?.cues;
   function replay(id,cue){
@@ -75,11 +83,15 @@ export default function CargoApp(){
           <a href={manifest.source.datasetUrl+'/tree/'+manifest.source.revision} target="_blank" rel="noreferrer">资产版本</a> · <a href={manifest.source.licenseUrl} target="_blank" rel="noreferrer">CC BY 4.0</a></details></section>}
     </aside>
     <main className="cargo-main"><canvas ref={canvas} aria-label="货站物流设备三维视窗"/>
-      {detail && <div className="cargo-caption"><span>{detail.sheet.sheet}　·　1∶{detail.sheet.scale}</span><h2>{selection || (view==='overview' && mode==='3d'?'主站房作业联动':active[1])}</h2></div>}
+      {detail && <div className="cargo-caption"><span>{detail.sheet.sheet}　·　1∶{detail.sheet.scale}</span><h2>{selection || (view==='overview' && mode==='3d'?'主站房作业联动':active[1])}</h2>
+        {data?.site?.floorOperations && view==='overview' && mode==='3d' && focus<1 &&
+          <small className="cargo-floor-key"><i/>理货与待运 <b/>仅示作业占地</small>}</div>}
       <div className="cargo-projections" role="group" aria-label="查看方式">{modes.map(([id,name])=><button key={id} type="button" data-projection={id} aria-pressed={mode===id} onClick={()=>show(view,id,focus)} disabled={!data}>{name}</button>)}</div>
       {data && view==='overview' && mode==='3d' && <div className="cargo-map-tags">
         {[['pallet','下层空托盘','overview',1],['dock','装卸交接','dock',-1],['sorting','自动分拣环线','sorting',-1],['tables','组板作业','tables',engine.current.packingLabel],
-          ...(data.site?[['meter','收货计量','sorting',data.sorter.feeds.length]]:[])].map(([id,label,area,target])=>
+          ...(data.site?[['meter','收货计量','sorting',data.sorter.feeds.length]]:[]),
+          ...(data.site?.floorOperations?[['tracks','整板交接地轨','overview',2],['agv','AGV 暂存','overview',3],
+            ['apron','待运与复重','overview',4],['legacy','利旧平台','overview',5]]:[])].map(([id,label,area,target])=>
           <button key={id} type="button" data-tag={id} ref={el=>engine.current?.tag(id,el)} onClick={()=>show(area,'3d',target)}>{label}</button>)}</div>}
       {mode==='overlay' && <div className="cargo-legend">
         {view!=='pallet' && <><i/>设备中心线及轮廓</>}
