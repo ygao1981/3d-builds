@@ -93,6 +93,16 @@
       "projects": [
         "cargo"
       ]
+    },
+    {
+      "id": "vehicle_forklift_red_c01",
+      "optional": true,
+      "file": "glb/vehicle_forklift_red_c01.glb",
+      "bytes": 7591060,
+      "sha256": "9de184c6c38e9b52db91918441171b261c62beeed8ad0ace01d5dd1f27f8dade",
+      "projects": [
+        "cargo"
+      ]
     }
   ]
 }

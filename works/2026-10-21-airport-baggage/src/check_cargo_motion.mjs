@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {mkdir,writeFile} from 'node:fs/promises';
+import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -23,7 +23,8 @@ async function still(elapsed,file){
 }
 try{
   await page.goto(url);await page.waitForFunction(()=>!!window.__cargo,undefined,{timeout:60000});
-  assert.equal(new Set(result.models.map(([name])=>name)).size,5);
+  const manifest=JSON.parse(await readFile(path.join(app,'src/simready-assets.json'),'utf8'));
+  assert.equal(new Set(result.models.map(([name])=>name)).size,manifest.models.filter(m=>m.projects.includes('cargo')).length);
   assert(result.models.every(([,status])=>status===200));
   await page.getByRole('combobox',{name:'演示倍速'}).selectOption('4');
   for(const [area,id,beat] of [['sorting','feed',1.0],['chutes','unload',2.8],['pallet','release',1.7],
@@ -124,7 +125,7 @@ try{
   await failed.route(u=>/box_cardboard_(c02|d03)\.glb$/.test(u.pathname),r=>r.abort());
   await failed.goto(url);await failed.waitForFunction(()=>window.__cargo?.missingCartons===2);
   assert(await failed.getByRole('status').isVisible());
-  await failed.locator('[data-cue="unload"]').click();
+  await failed.locator('[data-area="sorting"]').click();await failed.locator('[data-cue="unload"]').click();
   result.previousPack=await failed.evaluate(()=>[...new Set(window.__cargo.plant.sorting.loads.map(l=>l.box.name))]);
   assert.deepEqual(result.previousPack,['box_cardboard_a01']);
   await failed.unrouteAll();

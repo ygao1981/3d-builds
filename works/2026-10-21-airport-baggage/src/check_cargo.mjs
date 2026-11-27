@@ -42,7 +42,7 @@ try{
     if(['sorting','pallet','overview'].includes(area)){
       const {seen,actual,expected}=await page.evaluate(area=>{
         const {plant,data}=window.__cargo,group=plant.pallet.group;
-        return {seen:group.visible,actual:[group.position.x,group.position.z],expected:area==='pallet'?[0,0]:data.pallet.offset};
+        return {seen:group.visible,actual:[group.position.x,group.position.z],expected:data.pallet.offset};
       },area);
       assert(seen);assert.deepEqual(actual,expected);(results.palletAlignment??=[]).push(area);
     }

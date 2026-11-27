@@ -32,3 +32,15 @@
 @media(max-width:640px){.cargo-shell{--head:60px;--foot:103px;grid-template:'head' var(--head) 'side' 49px 'main' minmax(0,1fr) 'foot' var(--foot)/100%}.cargo-header{padding:0 10px;gap:8px}.cargo-header h1{font-size:15px}.cargo-header h1 span{font-size:12px;margin-left:6px;padding-left:6px}.cargo-header p,.cargo-head-state{font-size:10px}.cargo-head-state{display:none}
  .cargo-side{padding:4px 6px;border-right:0;border-bottom:1px solid var(--line);overflow:auto}.cargo-side h2,.cargo-facts,.cargo-side small,.cargo-side nav svg{display:none!important}.cargo-side nav{display:flex;gap:2px}.cargo-side nav button{padding:5px 7px;width:auto;min-height:36px;flex:1;justify-content:center}.cargo-side nav strong{font-size:11px;white-space:nowrap}
  .cargo-projections{top:8px;right:6px}.cargo-projections button{font-size:10px;padding:5px}.cargo-caption{left:6px;top:8px;padding:4px 6px}.cargo-caption h2{font-size:13px}.cargo-caption span{font-size:8px}.cargo-bottom{padding:6px 9px}.cargo-legend{font-size:10px}.cargo-loading{width:85%}}
+
+.cargo-map-tags{position:absolute;inset:0;pointer-events:none}
+.cargo-map-tags button{position:absolute;visibility:hidden;transform:translate(-50%,calc(-100% - 9px));pointer-events:auto;background:#233d42f5;border:1px solid #718780;border-left:3px solid #e6b14e;border-radius:3px;color:#fff;font-size:12px;font-weight:600;letter-spacing:.035em;padding:5px 9px;box-shadow:0 2px 5px #23353624}
+.cargo-map-tags button::after{content:'';position:absolute;left:50%;bottom:-9px;height:8px;border-left:1px solid #233d42}
+.cargo-map-tags button:hover,.cargo-map-tags button:focus-visible{background:#0f625c}
+.cargo-film .cargo-map-tags{display:none}
+@media(max-width:640px){.cargo-map-tags button{font-size:10px;padding:3px 5px}.cargo-replay{max-width:98%;left:4px;gap:3px}.cargo-replay span{display:none}.cargo-replay button{padding:5px;font-size:10px}}
+
+.cargo-flow{position:absolute;bottom:12px;left:16px;display:flex;flex-wrap:wrap;gap:6px 14px;padding:5px 9px;background:#f8faf7f5;border:1px solid #b0c0bc;border-radius:4px}
+.cargo-flow>div{display:flex;align-items:center;gap:3px}.cargo-flow span{font-weight:700;font-size:11px;color:#38525b;padding-right:4px}
+.cargo-flow button{padding:4px 2px;border:0;background:transparent;font-size:12px;color:#125e56}.cargo-flow button:hover{text-decoration:underline}.cargo-flow i{font-style:normal;color:#667a77;margin-right:5px}.cargo-film .cargo-flow{display:none}
+@media(max-width:640px){.cargo-flow{left:6px;bottom:7px;flex-direction:column;gap:1px;padding:3px 6px}.cargo-flow button{font-size:10px}}

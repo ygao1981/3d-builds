@@ -54,7 +54,7 @@ try {
   let checked=0;
   for (const model of manifest.models) if(await prepare(model))checked++;
   console.log('已校验 ' + checked + ' 个 NVIDIA SimReady 模型。');
-  if(checked<manifest.models.length)console.log('缺少可选纸箱款式，可运行 npm run assets 补齐。');
+  if(checked<manifest.models.length)console.log('部分可选资产尚未就绪，可运行 npm run assets 补齐。');
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;

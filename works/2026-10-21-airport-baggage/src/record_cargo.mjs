@@ -19,16 +19,17 @@ try{
   await page.goto(url.href);await page.waitForFunction(()=>Boolean(window.__cargo),undefined,{timeout:90000});
   const events=await page.evaluate(()=>{
     const c=window.__cargo;
-    return {...c.plant.sorting.cues,...c.plant.pallet.cues};
+    return {...c.plant.sorting.cues,...c.plant.pallet.cues,...c.plant.dockOps.cues,...c.plant.packing.cues};
   });
   const replay=(id,seconds,rate=1)=>[events[id].view,'3d',events[id].focus,seconds,events[id].time,rate,id];
+  const fps=24;
   const cuts=[
-    ['sorting','overlay',-1,2,10,.4],['sorting','3d',-1,2,12,1],
-    replay('feed',4,1.25),replay('unload',5,1.15),
-    ['pallet','3d',-1,2,24,1],replay('release',6,1.3),replay('turn',4,1.2),
-    replay('transfer',4,1.2),['overview','overlay',-1,1,15,1],
+    ['overview','3d',-1,2,13,1],replay('truck',3,2.3),...(events.meter?[replay('meter',2.5,1)]:[]),
+    replay('feed',3,1.25),replay('unload',3,1.25),replay('chain',4,1.55),
+    replay('turn',2,1.45),replay('supply',2,2.5),replay('build',3,2.7),
+    replay('handoff',3.5,1.7),['overview','overlay',-1,1,16,1],['overview','3d',-1,1,18,1],
   ];
-  encoder=spawn('ffmpeg',['-hide_banner','-loglevel','error','-n','-f','image2pipe','-framerate','30','-c:v','mjpeg','-i','pipe:0',
+  encoder=spawn('ffmpeg',['-hide_banner','-loglevel','error','-n','-f','image2pipe','-framerate',String(fps),'-c:v','mjpeg','-i','pipe:0',
     '-an','-c:v','libx264','-threads','4','-preset','veryfast','-crf','18','-pix_fmt','yuv420p','-movflags','+faststart',file],
     {windowsHide:true,stdio:['pipe','ignore','inherit']});
   const ended=once(encoder,'close');let total=0;const ranges=[];
@@ -41,7 +42,7 @@ try{
       const camera=c.getCamera(), at=c.getTarget(), offset=camera.position.clone().sub(at);
       return {at:at.toArray(),off:offset.toArray(),zoom:camera.zoom};
     },{area,mode,focus});
-    const count=seconds*30;
+    const count=Math.round(seconds*fps);
     for(let i=0;i<count;i++){
       await page.evaluate(async({basis,time,fraction,mode})=>{
         const c=window.__cargo,cam=c.getCamera();c.seek(time);
@@ -51,13 +52,13 @@ try{
             basis.at[2]+(z*Math.cos(a)-x*Math.sin(a))*size);
         }else{cam.zoom=basis.zoom*(1+.025*fraction);cam.updateProjectionMatrix();}
         await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-      },{basis,time:start+i/30*rate,fraction:i/(count-1),mode});
+      },{basis,time:start+i/fps*rate,fraction:i/(count-1),mode});
       const frame=await page.screenshot({type:'jpeg',quality:92});
       if(!encoder.stdin.write(frame))await once(encoder.stdin,'drain');
     }
-    ranges.push({area,mode,focus,cue,startFrame:total,frames:count});total+=count;console.log(area,mode,total+'/900');
+    ranges.push({area,mode,focus,cue,startFrame:total,frames:count});total+=count;console.log(area,mode,total+' frames');
   }
-  encoder.stdin.end();assert.equal((await ended)[0],0);assert.equal(total,900);
+  encoder.stdin.end();assert.equal((await ended)[0],0);assert.equal(total,cuts.reduce((n,c)=>n+Math.round(c[3]*fps),0));
   await writeFile(path.join(dest,'film-shots.json'),JSON.stringify(ranges,null,2));
   console.log('已保存 '+file);
 }finally{

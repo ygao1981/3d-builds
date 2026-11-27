@@ -1,0 +1,267 @@
+import * as T from 'three';
+import {amber,batch,conveyor,dark,fitted,frame,lerp,metal,mod,side,steel} from './hardware.js';
+import {scanner} from './induction.js';
+
+const kraft=[metal('#bf9056',.91,0),metal('#ac7843',.91,0),metal('#cfaa78',.91,0)];
+const tape=metal('#dbb980',.74,.02),paper=metal('#ede9db',.91,0),rubber=metal('#252d31'),wood=metal('#896545');
+const paint=[metal('#366c75'),metal('#4e647c'),metal('#b79053')];
+const net=metal('#34574c',.88,.02),body=metal('#e1e2d9',.67,.22);
+const smooth=t=>{t=T.MathUtils.clamp(t,0,1);return t*t*(3-2*t);};
+const phase=(t,a,b)=>smooth((t-a)/(b-a));
+
+function carton(b,x,y,z,w,h,d,i=0){
+  b.box(x,y+h/2,z,w,h,d,kraft[i%kraft.length]);
+  b.box(x,y+h+.003,z,w*.13,.007,d,tape);
+  b.box(x,y+h*.57,z+d/2+.004,w*.24,h*.24,.009,paper);
+}
+function palletBase(b,x,y,z,w,d){
+  for(const k of [-.43,0,.43])b.box(x+k*w,y+.056,z,.09,.108,d,wood);
+  for(let k=0;k<6;k++)b.box(x,y+.124,z+(k-2.5)*d/6,w,.035,d*.14,tape);
+}
+
+// A metal air-cargo board, cartons, and crossed restraint straps. y always denotes its support surface.
+function board(b,x,y,z,w,d,layers,strapped,seed=0){
+  b.box(x,y+.025,z,w,.05,d,steel);
+  for(const s of [-1,1])b.box(x,y+.058,z+s*(d/2-.027),w,.036,.052,dark);
+  const cw=(w-.13)/3,cd=(d-.15)/3,h=.43,base=y+.06;
+  for(let k=0;k<layers;k++){
+    for(let i=0;i<3;i++)for(let j=0;j<3;j++){
+      if(!strapped && k===layers-1 && (i*2+j+seed)%4===1)continue;
+      carton(b,x+(i-1)*cw,base+h*k,z+(j-1)*cd,cw-.025,h-.009,cd-.026,seed+i+2*j+k);
+    }
+  }
+  if(!strapped || !layers)return;
+  const top=base+layers*h+.014,ww=w*.485,dd=d*.48;
+  for(let i=0;i<5;i++){
+    const dx=(i-2)*ww*.41;
+    b.beam([x+dx,top,z-dd],[x+dx,top,z+dd],.038,.018,net);
+    for(const sign of [-1,1])for(const dir of [-1,1]){
+      const end=T.MathUtils.clamp(dx+dir*ww*.40,-ww,ww);
+      b.beam([x+dx,top,z+sign*dd],[x+end,y+.075,z+sign*(dd+.035)],.027,.025,net);
+    }
+  }
+  for(let i=-2;i<=2;i++){
+    const dz=i*dd*.42;
+    b.beam([x-ww,top+.008,z+dz],[x+ww,top+.008,z+dz],.03,.017,net);
+    for(const sign of [-1,1])for(const dir of [-1,1]){
+      b.beam([x+sign*ww,top,z+dz],[x+sign*(ww+.035),y+.075,z+T.MathUtils.clamp(dz+dir*dd*.40,-dd,dd)],.027,.025,net);
+    }
+  }
+}
+
+function forkTruck(assets){
+  const vehicle=new T.Group();
+  if(assets.vehicle_forklift_red_c01){
+    const model=assets.vehicle_forklift_red_c01.clone(true);vehicle.add(model);
+    // Match the low carrying position of the fork tines to the pallet openings.
+    const forks=['sm_fork1_c01_obj_00','sm_fork2_c01_obj_00'].map(n=>model.getObjectByName(n));
+    const floor=new T.Box3().setFromObject(model,true).min.y;model.position.y=-floor;
+    model.updateWorldMatrix(true,true);
+    const point=new T.Vector3(),calibrated=[];
+    for(const f of forks.filter(Boolean)){
+      let bladeTop=-Infinity;
+      f.traverse(mesh=>{
+        if(!mesh.isMesh)return;
+        for(let i=0;i<mesh.geometry.attributes.position.count;i++){
+          mesh.getVertexPosition(i,point).applyMatrix4(mesh.matrixWorld);
+          if(point.z>1.82 && point.z<2.50)bladeTop=Math.max(bladeTop,point.y);
+        }
+      });
+      if(!Number.isFinite(bladeTop)){
+        const bounds=new T.Box3().setFromObject(f,true);bladeTop=bounds.min.y+.05;
+      }
+      calibrated.push({node:f,rest:f.position.y,bladeTop});
+    }
+    vehicle.userData.setForkHeight=y=>{for(const {node,rest,bladeTop} of calibrated)node.position.y=rest+y-bladeTop;};
+  }else{
+    const b=batch(vehicle);
+    b.box(0,.52,-.1,1.06,.73,1.75,amber);b.box(0,1.95,-.16,1.08,.10,1.38,frame);
+    for(const x of [-.49,.49]){
+      b.box(x,1.46,.46,.06,1.05,.06,frame);b.box(x,1.35,-.72,.06,1.22,.06,frame);
+      b.box(x*.75,1.20,1.12,.09,2.30,.14,frame);
+      for(const z of [-.65,.65])b.roller([x-.095,.25,z],[x+.095,.25,z],.25,rubber);
+    }
+    b.finish();
+    const blades=new T.Group(),parts=batch(blades);
+    for(const x of [-.29,.29])parts.box(x,-.025,1.9,.12,.05,1.45,dark);
+    parts.finish();vehicle.add(blades);vehicle.userData.setForkHeight=y=>{blades.position.y=y;};
+  }
+  return vehicle;
+}
+
+function truck(b,x,y,tail,color){
+  // Cutaway on the loading side exposes the truck bed and the load.
+  const bed=y+.04,depth=6.3,z=tail-depth/2;
+  b.box(x,bed-.1,z,2.47,.2,depth,frame);b.box(x,bed+.012,z,2.42,.024,depth,wood);
+  b.box(x-1.17,bed+1.22,z,.075,2.44,depth,body);
+  b.box(x,bed+1.22,tail-depth,2.4,2.44,.08,body);
+  for(const dz of [.14,1.55,3.12,4.7,6.18])b.box(x-1.22,bed+1.22,tail-dz,.045,2.42,.055,steel);
+  for(const sign of [-1,1])b.box(x+sign*1.2,bed+2.45,z,.06,.08,depth,steel);
+  b.box(x,bed+2.45,tail-depth+.42,2.47,.075,.85,body);
+  const cab=tail-depth-1.26;
+  b.box(x,bed+.23,cab,2.38,1.20,2.28,color);
+  b.box(x,bed+1.26,cab+.1,2.31,1.12,1.95,color);
+  b.box(x,bed+1.43,cab-.9,2.07,.62,.028,dark);
+  for(const sign of [-1,1]){
+    b.box(x+sign*1.163,bed+1.4,cab-.14,.023,.58,1.12,dark);
+    b.box(x+sign*.82,bed+.06,cab-1.149,.39,.16,.037,paper);
+    for(const dz of [1.12,2.31,depth+1.1]){
+      const xx=x+sign*1.06;
+      b.roller([xx-.15,bed-.64,tail-dz],[xx+.15,bed-.64,tail-dz],.43,rubber);
+      b.roller([xx-.158,bed-.64,tail-dz],[xx+.158,bed-.64,tail-dz],.22,steel);
+    }
+  }
+  for(const dx of [-.55,.55])for(const dz of [3.6,4.75]){
+    palletBase(b,x+dx,bed+.025,tail-dz,.99,1.05);
+    for(let k=0;k<2;k++)carton(b,x+dx,bed+.167+k*.52,tail-dz,.93,.51,.96,k);
+  }
+}
+
+export function createDockOperations(group,s,assets){
+  const b=batch(group);
+  const used=s.levellers.map((p,i)=>({p,i})).filter(({i})=>i%3===1);
+  // Choose a dock close to the actual whole-board handoff lines for the opening shot.
+  const hx=s.handoffs[0][0][0];
+  const active=s.levellers.reduce((best,p,i)=>Math.abs(p.at[0]-hx)<Math.abs(s.levellers[best].at[0]-hx)?i:best,0);
+  if(!used.some(u=>u.i===active))used.push({p:s.levellers[active],i:active});
+  for(const {p:{at:[x,z]},i} of used)truck(b,x,0,z-s.levelSize[1]/2-.18,paint[i%3]);
+  const [x,z]=s.levellers[active].at, vehicle=forkTruck(assets);group.add(vehicle);
+  const cargo=new T.Group();cargo.name='货车卸下的托货';group.add(cargo);
+  const pack=batch(cargo);palletBase(pack,0,0,0,1.02,1.08);
+  for(let j=0;j<3;j++)for(const sign of [-1,1])carton(pack,sign*.245,.145+j*.37,0,.478,.36,.96,j);
+  pack.finish();vehicle.rotation.y=Math.PI;
+  const uld=new T.Group(),unit=batch(uld);board(unit,0,0,0,2.43,3.16,3,true);unit.finish();group.add(uld);
+  for(const [a,bp] of s.handoffs){
+    for(const sign of [-1,1]){
+      b.box(a[0]+sign*1.53,.53,(a[1]+bp[1])/2,.09,.24,Math.abs(bp[1]-a[1]),side);
+      for(let j=0;j<5;j++)b.box(a[0]+sign*1.54,.66,lerp(a[1],bp[1],j/4),.13,.09,.15,amber);
+    }
+  }
+  const counter=s.handoffs[1];if(counter)board(b,counter[1][0],s.deck,counter[1][1]+.65,2.40,3.1,2,true,4);
+  b.finish();
+  const path=s.handoffs[0],drop=z+5.5,pick=z-3.35;
+  function update(time){
+    const t=mod(time,30);
+    let loadZ=pick, forkZ;
+    if(t<6){forkZ=lerp(z+5.6,pick+1.94,phase(t,0,6));}
+    else if(t<17){loadZ=lerp(pick,drop,phase(t,6,17));forkZ=loadZ+1.94;}
+    else{loadZ=drop;forkZ=lerp(drop+1.94,drop+4.3,phase(t,17,22));}
+    const lift=.065*phase(t,5.6,6.6)*(1-phase(t,16.3,17.3));
+    vehicle.position.set(x,0,forkZ);cargo.position.set(x,lerp(.065,.004,phase(loadZ,pick,drop))+lift,loadZ);
+    vehicle.userData.setForkHeight(cargo.position.y+.1065-.035*(1-phase(t,5.5,6)+phase(t,17,18)));
+    const run=mod(time,50),u=run<22?phase(run,0,22):1-phase(run,25,48);
+    uld.position.set(path[0][0],s.deck,lerp(path[0][1]+1.63,path.at(-1)[1]-1.63,u));
+    if(t>23)vehicle.position.z=lerp(drop+4.3,z+5.6,phase(t,23,29));
+  }
+  return {active,vehicle,cargo,uld,update,cues:{truck:{view:'dock',focus:active,time:5.8},handoff:{view:'dock',focus:s.levellers.length,time:6}}};
+}
+
+function operator(parent){
+  const figure=new T.Group(),coat=metal('#df9e32',.83,0),trousers=metal('#344956',.88,0),skin=metal('#b98867',.85,0);
+  const b=batch(figure);b.box(0,1.09,0,.37,.55,.24,coat);b.box(0,1.02,.003,.378,.061,.246,paper);
+  for(const x of [-.105,.105]){b.box(x,.45,0,.155,.80,.185,trousers);b.box(x,.085,.03,.17,.13,.26,rubber);}
+  b.roller([0,1.39,0],[0,1.61,0],.117,skin);b.roller([0,1.60,0],[0,1.68,0],.144,amber);b.finish();
+  const arms=[-1,1].map(sign=>{
+    const shoulder=new T.Vector3(sign*.17,1.29,0);
+    const joints=[new T.Mesh(new T.CapsuleGeometry(.072,.12,3,8),coat),new T.Mesh(new T.CapsuleGeometry(.056,.12,3,8),skin)];
+    figure.add(...joints);return {sign,shoulder,joints};
+  });
+  parent.add(figure);
+  return {figure,hold(y){
+    for(const {sign,shoulder,joints} of arms){
+      const elbow=new T.Vector3(sign*.234,(1.19+y)/2,.12),hand=new T.Vector3(sign*.21,y,.37);
+      [elbow,hand].forEach((to,i)=>{const from=i?elbow:shoulder,obj=joints[i],delta=to.clone().sub(from);
+        obj.position.copy(from).lerp(to,.5);obj.scale.y=delta.length()/.24;
+        obj.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),delta.normalize());});
+    }
+  }};
+}
+
+export function createPackingOperations(group,s,assets,nearChute){
+  const b=batch(group);
+  const world=(p)=>[p.at[0]+s.offset[0],p.at[1]+s.offset[1]];
+  const active=s.places.reduce((best,p,i)=>{
+    const cost=p=>{const [x,z]=world(p);return z>nearChute[1]+4?Math.hypot(x-nearChute[0],z-nearChute[1]):Infinity;};
+    return cost(p)<cost(s.places[best])?i:best;
+  },0);
+  const [ax,az]=s.places[active].at;
+  s.places.forEach(({at:[x,z],rotated},i)=>{
+    const [w,d]=rotated?[...s.size].reverse():s.size;
+    if(i===active){
+      b.box(x,s.height+.025,z,w*.92,.05,d*.92,steel);
+      // Leave the near corner open for the carton carried by the operator.
+      for(const dx of [-.72,0,.72])for(const dz of [-.78,0])for(let k=0;k<2;k++)carton(b,x+dx,s.height+.05+k*.38,z+dz,.69,.37,.74,i+k);
+    }else if(i%5!==2)board(b,x,s.height,z,w*.92,d*.92,1+i%4,i%3!==0,i);
+  });
+  const supply=[ax+2.65,az+.77],landing=[ax+1.02,az+.79],surface=s.height+.05;
+  const delivery=new T.Group(),pallet=batch(delivery);
+  palletBase(pallet,0,0,0,.97,1.10);
+  for(let k=0;k<2;k++)carton(pallet,0,.145+k*.35,0,.82,.34,.83,k);
+  pallet.finish();group.add(delivery);
+  const worker=operator(group),box=fitted(assets.box_cardboard_a01,.49,.39,.42,true);
+  group.add(box);
+  const vehicle=forkTruck(assets);
+  vehicle.position.set(supply[0],0,supply[1]-1.96);group.add(vehicle);
+  b.finish();
+  const yaw=-Math.PI/2,size=box.userData.size;
+  const pickupZ=Math.min(supply[1]-1.8,nearChute[1]-s.offset[1]+2.15);
+  function update(time){
+    const cycle=mod(time,35),t=T.MathUtils.clamp(cycle-9,0,18);
+    const approach=phase(cycle,.5,7.5),retreat=phase(cycle,8,13);
+    delivery.position.set(supply[0],.004+.054*(1-phase(cycle,7.2,8)),lerp(pickupZ,supply[1],approach));
+    vehicle.position.set(supply[0],0,delivery.position.z-1.94-2.05*retreat);
+    vehicle.userData.setForkHeight(delivery.position.y+.1065-.035*retreat);
+    const walk=phase(t,3,9),back=phase(t,12.5,17.9);
+    const x=lerp(supply[0],landing[0],walk),z=lerp(supply[1],landing[1],walk);
+    const y=lerp(.845,1.01,phase(t,1.2,3))+(surface-1.01)*phase(t,9,11.5);
+    box.position.set(x,y+(1-walk)*delivery.position.y,z+(cycle<9?delivery.position.z-supply[1]:0));
+    const g=worker.figure;g.rotation.y=yaw;
+    const footX=x+.38+(supply[0]-landing[0])*back;
+    g.position.set(footX,0,z);
+    // Worker lowers torso while placing this carton onto the board.
+    const crouch=.53*phase(t,8.7,11.5)*(1-phase(t,12,13.4));
+    g.scale.y=1-crouch;
+    worker.hold((y+size[1]*.46)/g.scale.y);
+  }
+  return {active,supply,landing,vehicle,delivery,box,worker,update,cues:{supply:{view:'tables',focus:active,time:.7},build:{view:'tables',focus:active,time:11.1}}};
+}
+
+export function fitReceipt(group,at,assets){
+  const b=batch(group),[x,z]=at,w=.8,h=.8;
+  for(const [a,c] of [[-3.3,-1.0],[-.99,-.81],[-.8,.8],[.81,3.2]])conveyor(b,[x,z+a],[x,z+c],h,h,w);
+  scanner(b,x,z-.82,h,w,true);
+  for(const sign of [-1,1]){
+    b.box(x+sign*.52,h-.15,z,.10,.15,1.6,amber);
+    for(const dz of [-.63,.63])b.box(x+sign*.43,h-.24,z+dz,.15,.10,.19,steel);
+  }
+  b.box(x+.82,.64,z,.068,1.28,.068,frame);b.box(x+.82,1.45,z,.67,.39,.14,dark);
+  const screen=document.createElement('canvas');screen.width=256;screen.height=104;
+  const ctx=screen.getContext('2d'),tex=new T.CanvasTexture(screen);tex.colorSpace=T.SRGBColorSpace;
+  const display=new T.Mesh(new T.PlaneGeometry(.595,.30),new T.MeshBasicMaterial({map:tex,toneMapped:false}));
+  display.position.set(x+.82,1.45,z+.071);group.add(display);
+  b.finish();const item=fitted(assets.box_cardboard_a01,.45,.36,.44,true);group.add(item);
+  let last;
+  return {item,update(t){
+    const offset=lerp(-2.9,2.85,mod(t,8)/8);item.position.set(x,h,z+offset);
+    const state=Math.abs(offset)<.65?'称重中':offset>=-1.2 && offset<-.65?'读码中':'待料';
+    if(last===state)return;
+    ctx.fillStyle='#183731';ctx.fillRect(0,0,256,104);ctx.fillStyle='#b6e1b3';ctx.textAlign='center';
+    ctx.font='bold 45px "Microsoft YaHei",sans-serif';ctx.fillText(state,128,68);tex.needsUpdate=true;last=state;
+  }};
+}
+
+export function dressStaging(batch,site){
+  site.staging.forEach(({at:[x,z],size:[w,d]},i)=>{
+    for(const sign of [-1,1]){
+      batch.box(x,.007,z+sign*d/2,w,.014,.043,amber);batch.box(x+sign*w/2,.007,z,.043,.014,d,amber);
+    }
+    if(i%4===1)return;
+    const count=w>3?3:2,depth=d>3?2:1,pw=(w-.16)/count,pd=Math.min(1.15,(d-.12)/depth);
+    for(let a=0;a<count;a++)for(let j=0;j<depth;j++){
+      const cx=x+(a-(count-1)/2)*pw,cz=z+(j-(depth-1)/2)*pd;
+      palletBase(batch,cx,.009,cz,pw-.08,pd-.06);
+      const n=1+(a+j+i)%3;
+      for(let k=0;k<n;k++)carton(batch,cx,.15+k*.48,cz,pw-.11,.47,pd-.10,i+k);
+    }
+  });
+}
