@@ -210,7 +210,7 @@ export function createHall(data,assets,texture,furniture,workViews=[]){
   }
   rafters.finish();
   if(data.site){
-    dressStaging(b,data.site);
+    if(!data.site.freight)dressStaging(b,data.site);
     for(const [x,z] of data.site.floorScales||[]){
       b.box(x,.009,z,4,.024,4,platform);
       for(const sign of [-1,1]){

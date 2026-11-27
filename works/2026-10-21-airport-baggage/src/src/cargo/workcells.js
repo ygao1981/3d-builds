@@ -160,18 +160,21 @@ export function createDockOperations(group,s,assets){
   // Choose a dock close to the actual whole-board handoff lines for the opening shot.
   const hx=s.handoffs[0][0][0];
   const active=s.levellers.reduce((best,p,i)=>Math.abs(p.at[0]-hx)<Math.abs(s.levellers[best].at[0]-hx)?i:best,0);
+  const dispatchIndex=s.levellers.findIndex(p=>p.id===s.dispatchId);
   if(!used.some(u=>u.i===active))used.push({p:s.levellers[active],i:active});
+  if(dispatchIndex>=0 && !used.some(u=>u.i===dispatchIndex))used.push({p:s.levellers[dispatchIndex],i:dispatchIndex});
   const truckPallet=fitted(assets.pallet_a01,.99,.142,1.05);group.add(truckPallet);
   for(const {p:{at:[x,z]},i} of used)truck(b,x,0,z-s.levelSize[1]/2-.18,paint[i%3],i===active?truckPallet:null);
-  const [x,z]=s.levellers[active].at, vehicle=forkTruck(assets);group.add(vehicle);
+  const vehicle=forkTruck(assets);group.add(vehicle);
   const cargo=new T.Group();cargo.name='货车卸下的托货';group.add(cargo);
   const pack=batch(cargo);palletBase(pack,0,0,0,1.02,1.08);
   for(let j=0;j<3;j++)for(const sign of [-1,1])carton(pack,sign*.245,.145+j*.37,0,.478,.36,.96,j);
   pack.finish();vehicle.rotation.y=Math.PI;
   const lifts=s.handoffs.map((path,i)=>liftingHandoff(group,path,s,i));
   b.finish();
-  const drop=z+5.5,pick=z-3.35;
   function update(time,dispatch=false){
+    const [x,z]=s.levellers[dispatch && dispatchIndex>=0?dispatchIndex:active].at;
+    const drop=z+5.5,pick=z-3.35;
     const t=mod(dispatch?-time:time,30);
     let loadZ=pick, forkZ;
     if(t<6){forkZ=lerp(z+5.6,pick+1.94,phase(t,0,6));}
@@ -353,18 +356,18 @@ export function fitReceipt(group,at,assets,extension=0,index=0,dockZ=0,parkedTru
   return line;
 }
 
-export function dressStaging(batch,site){
+export function dressStaging(batch,site,loads=batch){
   site.staging.forEach(({at:[x,z],size:[w,d]},i)=>{
     for(const sign of [-1,1]){
-      batch.box(x,.007,z+sign*d/2,w,.014,.043,amber);batch.box(x+sign*w/2,.007,z,.043,.014,d,amber);
+      batch.box(x,.023,z+sign*d/2,w,.014,.065,amber);batch.box(x+sign*w/2,.023,z,.065,.014,d,amber);
     }
     if(i%4===1)return;
     const count=w>3?3:2,depth=d>3?2:1,pw=(w-.16)/count,pd=Math.min(1.15,(d-.12)/depth);
     for(let a=0;a<count;a++)for(let j=0;j<depth;j++){
       const cx=x+(a-(count-1)/2)*pw,cz=z+(j-(depth-1)/2)*pd;
-      palletBase(batch,cx,.009,cz,pw-.08,pd-.06);
+      palletBase(loads,cx,.009,cz,pw-.08,pd-.06);
       const n=1+(a+j+i)%3;
-      for(let k=0;k<n;k++)carton(batch,cx,.15+k*.48,cz,pw-.11,.47,pd-.10,i+k);
+      for(let k=0;k<n;k++)carton(loads,cx,.15+k*.48,cz,pw-.11,.47,pd-.10,i+k);
     }
   });
 }

@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {Icon} from '../ui/icons.jsx';
 import {equipmentView,openCargo} from './scene.js';
+import {insideFloor} from './floor-operations.js';
 import FreightFlows from './FreightFlows.jsx';
 import manifest from '../simready-assets.json';
 import workerAsset from './worker-asset.json';
@@ -23,6 +24,18 @@ function describe(key,d,selection,station){
   const eq=d.site?.distributionEquipment;
   const workface=key==='overview' && selection && station?.key && station;
   if(workface){
+    if(workface.handlingArea){
+      const f=d.site.floorOperations,within=at=>insideFloor(workface.outline,...at),metrics=[];
+      const bays=d.site.staging.filter(p=>within(p.at)).length,scales=d.site.floorScales.filter(within).length;
+      const offices=(f.handling.offices||[]).filter(({bounds:[a,b]})=>within(a.map((v,i)=>(v+b[i])/2))).reduce((n,o)=>n+o.rooms,0);
+      if(scales)metrics.push(['整托地磅',scales+' 台']);
+      if(bays)metrics.push(['图示货位',bays+' 处']);
+      if(offices)metrics.push(['货运操作间',offices+' 间']);
+      if(workface.key==='oldTransfer')metrics.push(['平台图示摆位',f.existing.positions.length+' 处'],['货载形式','整板、散件']);
+      if(workface.key==='bufferLots')metrics.push(['图示暂存架',f.agv.stands.length+' 个'],['交接位',f.agv.handover.length+' 处']);
+      if(!metrics.length)metrics.push(['区域用途',workface.label]);
+      return {sheet:d.site.reference,parts:workface.sheet,note:workface.note,metrics};
+    }
     if(workface.planCut)return {sheet:d.site.reference,parts:workface.sheet,note:workface.note,
       metrics:[['图示范围','首层主要墙线'],['用途','辅助用房'],['建筑立面','待建筑图核对']]};
     const facts=({canopy:[['主跨 / 外挑','34 / 5.5 m'],['工艺净高','5 m']],
@@ -150,8 +163,10 @@ export default function CargoApp(){
       onWheel={()=>{if(floorPick)setFloorPick(null);}} onKeyDown={()=>{if(floorPick)setFloorPick(null);}}/>
       {detail && <div className="cargo-caption"><span>{detail.sheet.sheet}　·　{separate?'独立工序示意':sideRoomView && mode==='3d'?'首层剖视':sample?'工位组合示意':'1∶'+detail.sheet.scale}</span><h2>{freeBrowse?'主站房自由浏览':selection || (view==='overview' && mode==='3d'?'主站房作业联动':active[1])}</h2>
         {freeBrowse && selection && <small>上次定位　{selection}</small>}
-        {data?.site?.floorOperations && view==='overview' && mode==='3d' && focus<1 &&
-          <small className="cargo-floor-key"><i/>理货与待运 <b/>图示作业区</small>}
+        {data?.site?.floorOperations && panorama && (focus<1 || freeBrowse) &&
+          <small className="cargo-floor-key">{data.site.floorOperations.handling?
+            <><i className="receipt"/>收货 <i className="dispatch"/>提发货 <i className="transfer"/>周转</>:
+            <><i/>理货与待运</>} <b/>图示作业区</small>}
         {panorama && data?.site?.freight && !separate && <label className="cargo-batch-toggle"><input type="checkbox" checked={showBatch} onChange={e=>{
           engine.current.hall.freight.setBatchVisible(e.target.checked);setShowBatch(e.target.checked);
         }}/>周转作业示例</label>}
@@ -175,7 +190,7 @@ export default function CargoApp(){
           ...(inspection && focus!==inspection.focus?[['inspection','收货安检','overview',inspection.focus]]:[]),
           ...(data.site?.floorOperations?[['tracks','整板交接地轨','overview',2],['agv','AGV 暂存','overview',3],
             ['apron','待运与复重','overview',4],['legacy','利旧平台','overview',5]]:[]),
-          ...devices.flatMap((n,i)=>n.planCut || ['manual','inbound','pickup','transfer','crossWait','expressWait','outPacking','floorWeigh','inOnline','inReview','inHolding'].includes(n.key)?[[n.key,n.label,'overview',i]]:[])].map(([id,label,area,target])=>
+          ...devices.flatMap((n,i)=>n.planCut || ['manual','inbound','pickup','transfer','crossWait','expressWait','outPacking','floorWeigh','inOnline','inReview','inHolding','outReceipt','inDispatchArea'].includes(n.key)?[[n.key,n.label,'overview',i]]:[])].map(([id,label,area,target])=>
           <button key={id} type="button" data-tag={id} ref={el=>engine.current?.tag(id,el)} onClick={()=>show(area,'3d',target)}>{label}</button>)}</div>}
       {mode==='overlay' && <div className="cargo-legend">
         {subject!=='pallet' && <><i/>{sideRoomView?'辅房主要墙线':subject==='overview' && data?.site?.freight?.sideRooms?'设备轮廓与辅房墙线':'设备中心线及轮廓'}</>}

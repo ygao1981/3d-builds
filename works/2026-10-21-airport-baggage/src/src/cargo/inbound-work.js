@@ -98,7 +98,7 @@ function tote(b,x,y,z,tint){
 }
 
 // Wheeled roll cages and pallet lots illustrate the two different pending statuses.
-function rollCage(b,x,z,tint){
+export function rollCage(b,x,z,tint){
   const w=1.07,d=.90;
   for(const dx of [-.4,.4])for(const dz of [-.31,.31])
     b.roller([x+dx-.04,.12,z+dz],[x+dx+.04,.12,z+dz],.115,rubber);

@@ -1,10 +1,11 @@
 import * as T from 'three';
-import { amber, batch, dark, frame, metal, platform, side, steel } from './hardware.js';
+import { amber, batch, conveyor, dark, frame, metal, platform, side, steel } from './hardware.js';
 
 const concrete=metal('#889894',.93,.03),trackSlab=metal('#7b8c88',.94,.03),bed=metal('#53676b',.79,.26),rim=metal('#385b59',.60,.46);
 const pale=metal('#d6c9a0',.88,.04),cream=metal('#d6d4bf',.84,.09),glass=metal('#4b717b',.32,.47);
 const rubber=metal('#2e393a',.93,.04),wagon=metal('#466c77');
 const aprons={inbound:metal('#829791',.96,.02),outbound:metal('#9a9c8b',.96,.02),apron:metal('#889998',.96,.02),transfer:metal('#8da19f',.96,.02)};
+const handlingPaint={receipt:metal('#af9e7e',.94,.03),dispatch:metal('#769498',.94,.03),transfer:metal('#889c89',.94,.03)};
 
 function area(parent,points,y,material){
   const shape=new T.Shape(points.map(([x,z])=>new T.Vector2(x,-z)));
@@ -59,7 +60,7 @@ function agvBank(b,{stands,handover,vehicles}){
   }
 }
 
-function existingDeck(b,{deck,ballDeck,positions}){
+function existingDeck(b,{deck,ballDeck,positions,straight}){
   const [[x,z],[xx,zz]]=deck,[[edge],[right]]=ballDeck;
   b.box((x+xx)/2,.21,(z+zz)/2,xx-x,.38,zz-z,platform);
   b.box((edge+right)/2,.423,(z+zz)/2,right-edge,.046,zz-z,bed);
@@ -68,6 +69,7 @@ function existingDeck(b,{deck,ballDeck,positions}){
   for(const r of positions)outline(b,rectangle(r),.504,.072,pale);
   for(let i=0;i<=6;i++)b.box((x+edge)/2,.412,z+(zz-z)*i/6,edge-x,.025,.055,bed);
   b.box(edge-.19,.42,(z+zz)/2,.29,.036,zz-z,rim);
+  if(straight)conveyor(b,straight.start,straight.end,.8,.8,straight.width-.055);
 }
 function booth(b,[[a,c],[v,f]]){
   const x=(a+v)/2,z=(c+f)/2,w=v-a,d=f-c,h=2.72;
@@ -84,6 +86,37 @@ function booth(b,[[a,c],[v,f]]){
   }
   b.box(x,h+.23,z,w+.34,.16,d+.36,rim);
   b.box(x,h+.328,z,w+.06,.036,d+.08,concrete);
+}
+
+// Roof cutaway of the commercial operations cabins. Only the footprint and room divisions are surveyed.
+function freightOffice(b,{bounds:[[a,c],[v,f]],rooms}){
+  const x=(a+v)/2,z=(c+f)/2,w=v-a,d=f-c,h=2.45;
+  b.box(x,.055,z,w,.11,d,concrete);
+  for(const end of [c+.075,f-.075]){
+    if(end>z){
+      for(let i=0;i<rooms;i++){
+        const panelWidth=w/rooms-1.0,px=a+i*w/rooms+panelWidth/2;
+        b.box(px,.58,end,panelWidth,1.03,.15,cream);
+        b.box(px,1.125,end,panelWidth,.06,.16,rim);
+      }
+      continue;
+    }
+    b.box(x,.58,end,w,1.03,.15,cream);
+    b.box(x,1.56,end,w-.20,.89,.095,glass);
+    b.box(x,2.10,end,w,.18,.15,cream);
+    b.box(x,h,end,w,.13,.17,rim);
+    for(let i=0;i<=rooms*3;i++)b.box(a+.07+(w-.14)*i/(rooms*3),1.68,end,.095,1.43,.155,cream);
+  }
+  for(let i=0;i<=rooms;i++){
+    const px=a+.075+(w-.15)*i/rooms;
+    b.box(px,1.24,z,.15,2.30,d,cream);b.box(px,h,z,.17,.13,d,rim);
+  }
+  for(let i=0;i<rooms;i++){
+    const px=a+(i+.5)*w/rooms,pz=c+.82;
+    b.box(px,.77,pz,1.55,.08,.69,steel);
+    for(const dx of [-.61,.61])b.box(px+dx,.39,pz,.085,.72,.55,frame);
+    b.box(px,1.02,pz,.08,.44,.10,frame);b.box(px,1.26,pz,.68,.39,.085,dark);
+  }
 }
 export function apronTrain(b,{tractor:[tx,z],dollies}){
   const wheels=(x,cz,width,length)=>{
@@ -123,17 +156,25 @@ export function insideFloor(outline,x,z){
 export function floorUse(data,x,z){
   const site=data.site,f=site.floorOperations;
   const hit=([cx,cz],w,d)=>Math.abs(x-cx)<=w/2 && Math.abs(z-cz)<=d/2;
+  const within=([[a,c],[v,h]])=>a<=x && x<=v && c<=z && z<=h;
   for(const room of site.freight?.sideRooms||[]){
     if(room.floors.some(p=>insideFloor(p,x,z)))return [room.label,room.note];
   }
   if(f.workAreas?.some(poly=>insideFloor(poly,x,z)))
     return ['进港快件作业区','用于进港快件及物品查验、上线交接、暂扣和超期暂存。'];
+  if(f.handling?.offices?.some(o=>within(o.bounds)))
+    return ['货运设备操作间','图中标注的定制成品房。平面按图定位，剖视高度和室内操作桌为演示示意。'];
   if(site.floorScales?.some(p=>hit(p,4,4)))return ['收货电子地磅','整托落在秤面上，叉车退出后称货。'];
   if(site.reweigh?.some(p=>hit(p,4,8)))return ['整板复重','装载集装板的拖斗在这里复重，再进入相应待运区。'];
   if(f.tracks.some(t=>Math.abs(x-t.start[0])<=t.gauge/2 && z>=Math.min(t.start[1],t.end[1]) && z<=Math.max(t.start[1],t.end[1])))
     return ['整板交接地轨','地轨从交接辊道延伸至场坪。'];
   const [[left,front],[right,back]]=f.existing.deck;
   if(x>=left && x<=right && z>=front && z<=back)return ['利旧作业平台','平台承接整板货物的移动和周转。'];
+  const belt=f.existing.straight;
+  if(belt && Math.abs(x-belt.start[0])<=belt.width/2 && z>=belt.start[1] && z<=belt.end[1])
+    return ['利旧直线输送段','普通输送段沿平台一侧布置，作业示例中可看到来件沿带面移动。'];
+  if(f.agv.stands.some(p=>hit(p.at,p.turned?1.03:1.21,p.turned?1.21:1.03)) || f.agv.handover.some(p=>hit(p,1.4,2)))
+    return ['AGV 暂存与交接','潜伏式搬运车将货物送到暂存架和交接位。'];
   if(data.dock.levellers.some(p=>hit(p.at.map((v,i)=>v+data.dockOffset[i]),...data.dock.levelSize)))
     return ['装卸月台','调平台在站房地面与车厢之间交接货物。'];
   const bay=f.apronBays.find(p=>insideFloor(p.outline,x,z));
@@ -148,7 +189,13 @@ export function floorUse(data,x,z){
   if(data.tables.places.some(p=>hit(p.at.map((v,i)=>v+data.tables.offset[i]),...(p.rotated?[...data.tables.size].reverse():data.tables.size))))
     return ['移动打板台','按图定位的理货、组板台位。'];
   if(site.staging.some(p=>hit(p.at,...p.size)))return ['图示货位','图纸给出了货位范围，现场货量随批次变化。'];
+  if(f.handling?.aisles.some(poly=>insideFloor(poly,x,z)))
+    return ['货物周转通道','图中的两道地面线之间供搬运通行。演示货物摆在通道两边。'];
+  const handling=f.handling?.areas.find(a=>insideFloor(a.outline,x,z));
+  if(handling)return [handling.label,handling.note];
   if(site.packingZones?.some(poly=>insideFloor(poly,x,z)))return ['理货与组板作业面','区域内分布作业台和货位，台间保留搬运空间。'];
+  const vicinity=f.handling?.surroundings?.find(s=>within(s.bounds));
+  if(vicinity)return [vicinity.label,vicinity.note];
   return ['地面用途待对图确认','该点没有可单独识别的作业区记录，可切换「图纸叠合」查看地面线条。'];
 }
 
@@ -168,6 +215,8 @@ export function createFloorOperations(parent,b,data,bounds){
     area(parent,bay.outline,-.002,aprons[bay.kind]);
     outline(b,bay.outline,.026,.105,pale);
   }
+  for(const zone of data.handling?.areas||[])area(parent,zone.outline,-.003,handlingPaint[zone.kind]);
+  for(const office of data.handling?.offices||[])freightOffice(b,office);
   // Hatch the general-purpose workface at overview scale; the linework is clipped to its surveyed outline.
   for(const poly of data.workAreas||[]){
     area(parent,poly,-.007,aprons.apron);

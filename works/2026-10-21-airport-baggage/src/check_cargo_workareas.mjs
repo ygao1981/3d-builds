@@ -107,7 +107,7 @@ async function verifyWorkareas(){
   assert(geometry.footprintInside && geometry.registered && geometry.rig);
   assert.equal(geometry.onlineTables,4);assert.equal(geometry.scales,3);
   assert.equal(geometry.groundMarkers,geometry.mainFloorNames.length);
-  assert.deepEqual(geometry.retained,{docks:15,tables:59,staging:64,palletBranches:9,ringCars:114,manual:4});
+  assert.deepEqual(geometry.retained,{docks:15,tables:59,staging:76,palletBranches:9,ringCars:114,manual:4});
   const [arrival,stop,lift,down,exit]=geometry.frames;
   assert(stop[2]-arrival[2]>5 && lift[1]>stop[1]+.10);
   assert.deepEqual(stop,down);assert(exit[2]-down[2]>5 && exit[1]===stop[1]);

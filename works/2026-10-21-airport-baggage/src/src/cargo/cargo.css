@@ -33,6 +33,7 @@
 .cargo-floor-key{display:flex;align-items:center;gap:4px;font-size:11px;font-weight:500;color:#415858;margin-top:4px}
 .cargo-floor-key i,.cargo-floor-key b{width:14px;height:9px;border:1px solid #889992;background:#d0ccae}
 .cargo-floor-key b{margin-left:5px;background:repeating-linear-gradient(135deg,#d2dcda 0 3px,#819b99 3px 4px)}
+.cargo-floor-key i.receipt{background:#c8b894}.cargo-floor-key i.dispatch{background:#9db7b8}.cargo-floor-key i.transfer{background:#b1bfae}
 @media(max-width:640px){.cargo-floor-key{font-size:9px;gap:2px}.cargo-floor-key i,.cargo-floor-key b{width:9px;height:7px}}
 .cargo-film .cargo-replay{display:none}
 .cargo-asset-notice{position:absolute;bottom:60px;left:16px;background:#fff5d9;border:1px solid #dac383;color:#58431d;border-radius:4px;padding:6px 9px;font-size:12px}

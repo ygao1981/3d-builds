@@ -1,9 +1,9 @@
 import * as T from 'three';
 import {amber,batch,conveyor,dark,fitted,frame,metal,mod,panelSign,platform,side,steel} from './hardware.js';
 import {apronTrain} from './floor-operations.js';
-import {board,carton,forkTruck,operator,palletBase} from './workcells.js';
+import {board,carton,dressStaging,forkTruck,operator,palletBase} from './workcells.js';
 import {walkingRoute} from './worker.js';
-import {createInboundWork} from './inbound-work.js';
+import {createInboundWork,rollCage} from './inbound-work.js';
 
 const roof=metal('#bac5c5',.70,.26),column=metal('#819b9c',.65,.38),concrete=metal('#a0aaa5',.95,.02);
 const finish=metal('#c6d0c9',.87,.04),rubber=metal('#354346',.92,.04);
@@ -126,6 +126,40 @@ function stock(b,x,z,levels=2){
   palletBase(b,x,0,z,1.2,1);
   for(let k=0;k<levels;k++)for(const dx of [-.285,.285])for(const dz of [-.23,.23])
     carton(b,x+dx,.145+k*.38,z+dz,.54,.372,.43,k+(dx>0?1:0));
+}
+
+function palletJack(b,x,z){
+  for(const dx of [-.245,.245]){
+    b.box(x+dx,.095,z+.45,.155,.085,1.16,amber);
+    b.roller([x+dx-.057,.067,z+.92],[x+dx+.057,.067,z+.92],.06,rubber);
+  }
+  b.box(x,.18,z-.25,.64,.25,.34,amber);
+  b.roller([x-.13,.13,z-.29],[x+.13,.13,z-.29],.13,rubber);
+  b.beam([x,.28,z-.25],[x,1.03,z-.66],.073,.072,frame);
+  for(const dx of [-.17,.17])b.beam([x,1.03,z-.66],[x+dx,1.20,z-.74],.045,.045,rubber);
+  b.roller([x-.17,1.20,z-.74],[x+.17,1.20,z-.74],.036,rubber);
+}
+
+// Each mobile lot represents a batch. Keep the middle of the dispatch lane open for the loading forklift.
+function handlingBatch(parent,{type,at:[x,z],area}){
+  const group=new T.Group(),b=batch(group);
+  group.name=area;group.position.set(x,0,z);parent.add(group);
+  if(type==='hold'){
+    for(const offset of [-3.05,0,3.05])stock(b,offset,0,offset===0?3:2);
+    for(const offset of [-3.05,0])stock(b,offset,1.55,2);
+  }else{
+    for(const side of [-1,1])for(const dz of [-1.55,0,1.55]){
+      const dx=side*(type==='send'?3.15:2.4);
+      if(type==='send' || (type==='receive' && side<0)){
+        stock(b,dx,dz,dz===0?3:2);
+      }else{
+        rollCage(b,dx,dz,column);
+        for(let level=0;level<(dz===0?1:3);level++)carton(b,dx,.315+level*.355,dz,.86,.35,.72,level);
+      }
+    }
+    palletJack(b,type==='send'?5.05:4.05,1.08);
+  }
+  b.finish();
 }
 
 function dolly(b,x,z,loaded,seed=0){
@@ -273,6 +307,8 @@ export function createFreightOperations(hall,site,receipts,assets,views){
   fixed.name='全流程固定设施';goods.name='周转货载示例';canopy.name='空侧作业棚剖面';
   hall.add(fixed,goods);fixed.add(canopy);canopyStructure(canopy,info.canopy);
   const b=batch(fixed),loads=batch(goods),nodes=Object.fromEntries(info.nodes.map(v=>[v.key,v]));
+  const stagingLots=new T.Group();stagingLots.name='图示货位上的示例货载';goods.add(stagingLots);
+  const stockMeshes=batch(stagingLots);dressStaging(b,site,stockMeshes);stockMeshes.finish();
   const [[left,front],[right,back]]=info.perimeter,[[oldLeft],[oldRight,oldBack]]=site.bounds;
   b.box((left+right)/2,-.145,(back+oldBack)/2,right-left,.27,back-oldBack,concrete);
   for(const [a,c] of [[left,oldLeft],[oldRight,right]])b.box((a+c)/2,-.15,(oldBack+front)/2,c-a,.27,oldBack-front,concrete);
@@ -291,6 +327,22 @@ export function createFreightOperations(hall,site,receipts,assets,views){
   dolly(loads,tx-3.2,tz,2);
   for(const dx of [-2.3,-.9,.5,1.9])stock(loads,tx+dx,tz+3,dx>0?1:2);
   const f=site.floorOperations;
+  const handlingLots=new T.Group();goods.add(handlingLots);
+  for(const lot of f.handling?.lots||[])handlingBatch(handlingLots,lot);
+  const onDeck=new T.Group();onDeck.name='平台周转板货';goods.add(onDeck);
+  const deckGoods=batch(onDeck),line=f.existing.straight,parcels=[];
+  if(line){
+    for(const [i,slot] of f.existing.positions.entries()){
+      if(i%3===1)continue;
+      const [[a,c],[v,h]]=slot;
+      board(deckGoods,(a+v)/2,.49,(c+h)/2,v-a-.10,h-c-.10,i%2+1,true,i);
+    }
+    deckGoods.finish();
+    for(let i=0;i<3;i++){
+      const carton=fitted(assets.box_cardboard_a01,.58,.43,.52,true);
+      goods.add(carton);parcels.push(carton);
+    }
+  }
   f.tow.dollies.forEach(([x,z],i)=>{if(i!==2)board(loads,x,.747,z,3.12,2.38,2,true,i);});
   const second=new T.Group(),train=batch(second),[qx,qz]=info.secondTrain.tractor;
   second.position.set(qx,0,qz);second.rotation.y=Math.PI/2;
@@ -323,6 +375,10 @@ export function createFreightOperations(hall,site,receipts,assets,views){
   b.finish();loads.finish();studio.visible=false;
   function update(t){
     floorWeigh?.update(t);
+    for(const [i,parcel] of parcels.entries()){
+      const travel=line.end[1]-line.start[1]-.72;
+      parcel.position.set(line.start[0],.80,line.start[1]+.36+mod(t*.48+i*travel/parcels.length,travel));
+    }
     inboundWork?.update(t);
     for(const handler of handlers)handler.update(t);
     const crossing=mod(t,32);
@@ -348,5 +404,6 @@ export function createFreightOperations(hall,site,receipts,assets,views){
     if(!visible)floorWeigh?.idle();
   }
   update(0);
-  return {goods,canopy,fixed,studio,manual,nodes,rooms,carried,lift,weigh,handlers,inboundWork,floorWeigh,setBatchVisible,setView,update};
+  return {goods,canopy,fixed,studio,manual,nodes,rooms,carried,lift,weigh,handlers,inboundWork,floorWeigh,
+    handlingLots,stagingLots,onDeck,parcels,setBatchVisible,setView,update};
 }

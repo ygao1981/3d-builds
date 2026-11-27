@@ -94,7 +94,9 @@ export function targets(data,inspection,packing,workViews=hallWorkViews(data)) {
       {label:'待运区与复重秤',at:floor.apronFocus,width:92,depth:34,az:.12},
       {label:'利旧作业平台',at:middle(...floor.existing.deck),width:19,depth:33,az:.68}
     ]:[]),...(inspection?[inspection.target]:[]),...(data.site?.freight?.nodes||[]).map(n=>n.key==='inWork'?
-      {...n,width:31,depth:54,height:3,az:.14,elevation:.85,note:inboundDescription}:n),...workViews],
+      {...n,width:31,depth:54,height:3,az:.14,elevation:.85,note:inboundDescription}:n),...workViews,
+      ...(floor?.handling?.areas||[]).map(zone=>({...zone,height:3.1,az:Math.PI-.18,elevation:.83,
+        sheet:'PR0020-1001、1002',handlingArea:true}))],
   };
 }
 
@@ -387,8 +389,10 @@ export async function openCargo(canvas,onStatus,onFreeBrowse=()=>{}) {
       browsing=wide || shifted>Math.max(7,Math.min(selected.width,selected.depth)*.7);
     }
     if(browsing!==freeBrowse){freeBrowse=browsing;onFreeBrowse(browsing);}
-    if(hall.operations)hall.operations.lettering.visible=hallView && (focus<1 || focus===4 || browsing);
+    if(hall.operations)hall.operations.lettering.visible=hallView && (focus<1 || focus===4 || selected?.handlingArea || browsing);
     const building=hallView && (focus===0 || wide && perspective.position.y>20);
+    if(hallView && selected?.handlingArea)
+      hall.dockUpper.visible=browsing || !['outReceipt','inDispatchArea','receiptHandover'].includes(selected.key);
     hall.overhead.visible=building;
     if(hall.freight)hall.freight.canopy.visible=building || hallView && selected?.key==='canopy';
   }
