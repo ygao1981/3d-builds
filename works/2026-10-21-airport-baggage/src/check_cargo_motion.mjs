@@ -13,7 +13,7 @@ const page=await browser.newPage({viewport:{width:1440,height:900}});
 const url=process.env.AIRPORT_URL || 'http://127.0.0.1:5426/';
 const result={models:[],errors:[],replays:[]};
 page.on('pageerror',e=>result.errors.push(e.message));
-page.on('response',r=>{if(r.url().endsWith('.glb'))result.models.push([r.url().split('/').pop(),r.status()]);});
+page.on('response',r=>{const p=new URL(r.url()).pathname;if(p.startsWith('/simready/') && p.endsWith('.glb'))result.models.push([p.split('/').pop(),r.status()]);});
 async function still(elapsed,file){
   await page.evaluate(async elapsed=>{
     const c=window.__cargo;c.seek(c.time+elapsed);

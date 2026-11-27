@@ -8,6 +8,15 @@ const up=new T.Vector3(0,1,0);
 const lerp=T.MathUtils.lerp, mod=T.MathUtils.euclideanModulo;
 const distance=(a,b)=>Math.hypot(b[0]-a[0],b[1]-a[1]);
 
+export function panelSign(text,width){
+  const canvas=document.createElement('canvas');canvas.width=384;canvas.height=112;
+  const ctx=canvas.getContext('2d');ctx.fillStyle='#26454b';ctx.fillRect(0,0,384,112);
+  ctx.fillStyle='#efb24f';ctx.fillRect(0,0,12,112);ctx.fillStyle='#f3f2e9';ctx.font='bold 62px "Microsoft YaHei",sans-serif';
+  ctx.textBaseline='middle';ctx.textAlign='center';ctx.fillText(text,196,57,358);
+  const tex=new T.CanvasTexture(canvas);tex.colorSpace=T.SRGBColorSpace;
+  return new T.Mesh(new T.PlaneGeometry(width,width*112/384),new T.MeshBasicMaterial({map:tex,toneMapped:false,side:T.DoubleSide}));
+}
+
 // Static machine parts sharing a material are drawn together. Coordinates are x, height, z in metres.
 function batch(parent) {
   const batches = new Map(), ref=new T.Object3D();

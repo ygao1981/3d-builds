@@ -61,7 +61,7 @@ function traces(data,plant) {
 }
 
 // All navigation targets come from the locally registered plan.
-export function targets(data) {
+export function targets(data,inspection) {
   const sort=data.sorter, p=data.pallet, d=data.dock;
   const eq=data.site?.distributionEquipment;
   const floor=data.site?.floorOperations;
@@ -85,7 +85,7 @@ export function targets(data) {
       {label:'AGV 暂存工位',at:floor.agv.at,width:26,depth:18,az:-.24},
       {label:'待运区与复重秤',at:floor.apronFocus,width:92,depth:34,az:.12},
       {label:'利旧作业平台',at:middle(...floor.existing.deck),width:19,depth:33,az:.68}
-    ]:[])],
+    ]:[]),...(inspection?[inspection.target]:[])],
   };
 }
 
@@ -99,13 +99,15 @@ export async function openCargo(canvas, onStatus) {
   onStatus('正在加载设备模型和图纸局部…');
   const loader=new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   const tx=new T.TextureLoader();
-  const [assets,images,markings]=await Promise.all([
+  const [assets,images,markings,furniture]=await Promise.all([
     Promise.all(cargoModels.map(async model=>{
       try{return [model.id,(await loader.loadAsync('/simready/'+model.id+'.glb')).scene];}
       catch(error){if(!model.optional)throw error;console.warn('可选资产加载失败',model.id,error);return null;}
     })),
     Promise.all(Object.entries({...refs(data),...(data.site?{hall:data.site.reference}:{})}).map(async ([key,ref])=>[key,await tx.loadAsync(rootUrl+ref.image)])),
     data.site?.reference.markings?tx.loadAsync(rootUrl+data.site.reference.markings):null,
+    data.site?.distributionEquipment?.receipts?.length?loader.loadAsync('/assets/screening.glb')
+      .then(model=>model.scene).catch(()=>{console.warn('安检操作台模型未载入，使用简化工作台。');return null;}):null,
   ]);
   const renderer=new T.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFShadowMap;
@@ -120,7 +122,7 @@ export async function openCargo(canvas, onStatus) {
   const loaded=assets.filter(Boolean),models=Object.fromEntries(loaded),plant=createCargoPlant(data,models);
   const offsets={sorting:[0,0],pallet:data.pallet.offset,dock:data.dockOffset,tables:data.tables.offset,hall:[0,0]};
   const meshes={sorting:plant.sorting.group,pallet:plant.pallet.group,dock:plant.dock,tables:plant.tables};
-  const hall=createHall(data,models,markings);
+  const hall=createHall(data,models,markings,furniture);
   scene.add(hall.group);
   const drawings={},lines=traces(data,plant);
   for(const [id,obj] of Object.entries(meshes)){
@@ -140,7 +142,8 @@ export async function openCargo(canvas, onStatus) {
   ctrl.maxDistance=420;ctrl.maxPolarAngle=Math.PI*.484;ctrl.enablePan=true;ctrl.target.set(0,0,0);
   let page='overview', key=page, layer='both', mode='3d', focus=-1;
   let camera=perspective, time=21, paused=false, speed=1, disposed=false, last, frameId;
-  const nav=targets(data);
+  const nav=targets(data,hall.inspection);
+  const inspectionCue=hall.inspection && {view:'overview',focus:nav.overview.indexOf(hall.inspection.target),time:hall.inspection.time};
   const inOverview=()=>page==='overview' && mode==='3d';
   const keys=new Set(),step=new T.Vector3(),eyeFloor=.25;
   let overviewPose=null,overviewMoved=false,gesture=false;
@@ -285,7 +288,8 @@ export async function openCargo(canvas, onStatus) {
       let distance=fit/(2*tangent)*1.10+depth*Math.cos(angle)*.48;
       if(key==='overview' || fitLower){
         distance=0;
-        const heights=fitLower?[palletBounds.min.y-ex.y,palletBounds.max.y-ex.y]:[-3,5];
+        const top=nav.overview[focus]?.height;
+        const heights=fitLower?[palletBounds.min.y-ex.y,palletBounds.max.y-ex.y]:top!==undefined?[-ex.y,top-ex.y]:[-3,5];
         for(const dx of [-ex.w/2,ex.w/2])for(const dz of [-ex.d/2,ex.d/2])for(const dy of heights){
           const across=dx*Math.cos(az)-dz*Math.sin(az),along=dx*Math.sin(az)+dz*Math.cos(az);
           const elevation=dy*Math.cos(angle)-along*Math.sin(angle);
@@ -315,6 +319,7 @@ export async function openCargo(canvas, onStatus) {
   });observer.observe(canvas);
   const tags=new Map();
   const labels={
+    ...(hall.inspection?{inspection:[...hall.inspection.target.at,2.35]}:{}),
     dock:[...data.dock.levellers[plant.dockOps.active].at.map((n,i)=>n+offsets.dock[i]),5.0],
     sorting:[data.sorter.left*.5,-data.sorter.radius,data.sorter.deck+1.2],
     pallet:[...data.pallet.tails.at(-1).map((n,i)=>n+offsets.pallet[i]),data.pallet.deck+.18],
@@ -372,7 +377,7 @@ export async function openCargo(canvas, onStatus) {
     renderer.render(scene,camera);positionTags();frameId=requestAnimationFrame(render);
   }
   show('overview','3d',data.site?.floorOperations?0:-1);frameId=requestAnimationFrame(render);
-  return {data,plant,hall,renderer,nav,show,tag,packingLabel,missingCartons:cargoModels.filter(m=>m.id.startsWith('box_cardboard_') && !models[m.id]).length,get time(){return time;}, get view(){return page;},get mode(){return mode;},
+  return {data,plant,hall,renderer,nav,show,tag,packingLabel,inspectionCue,missingCartons:cargoModels.filter(m=>m.id.startsWith('box_cardboard_') && !models[m.id]).length,get time(){return time;}, get view(){return page;},get mode(){return mode;},
     setPaused(v){paused=v;},setSpeed(v){speed=v;},seek(t){time=t;},getCamera(){return camera;},getTarget(){return ctrl.target.clone();},
     dispose(){disposed=true;cancelAnimationFrame(frameId);observer.disconnect();ctrl.dispose();
       canvas.removeEventListener('keydown',keyDown);canvas.removeEventListener('keyup',keyUp);

@@ -186,7 +186,7 @@ export function createDockOperations(group,s,assets){
     raise:{view:'dock',focus:s.levellers.length,time:5},handoff:{view:'dock',focus:s.levellers.length,time:lifts[0].moveAt+15}}};
 }
 
-function operator(parent){
+export function operator(parent){
   const figure=new T.Group(),coat=metal('#df9e32',.83,0),trousers=metal('#344956',.88,0),skin=metal('#b98867',.85,0);
   const b=batch(figure);b.box(0,1.09,0,.37,.55,.24,coat);b.box(0,1.02,.003,.378,.061,.246,paper);
   for(const x of [-.105,.105]){b.box(x,.45,0,.155,.80,.185,trousers);b.box(x,.085,.03,.17,.13,.26,rubber);}
@@ -325,15 +325,19 @@ export function fitReceipt(group,at,assets,extension=0,index=0,dockZ=0,parkedTru
   const display=new T.Mesh(new T.PlaneGeometry(.595,.30),new T.MeshBasicMaterial({map:tex,toneMapped:false}));
   display.position.set(x+.82,1.45,z+.071);group.add(display);
   b.finish();const item=fitted(assets.box_cardboard_a01,.45,.36,.44,true);group.add(item);
+  const speed=.5,phaseOffset=-2.9+index*2.7;
   let last;
-  return {item,start,end,at,update(t){
-    const offset=extension?start+.24+mod(t*.5-2.9-start-.24+index*2.7,end-start-.48):-2.9+mod(t,11.5)*.5;
+  const line={item,start,end,at,outfeed:null,timeAt:offset=>(offset-phaseOffset)/speed,update(t){
+    const reach=end+(line.outfeed?.length || 0);
+    const offset=extension?start+.24+mod(t*speed+phaseOffset-start-.24,reach-start-.48):-2.9+mod(t,11.5)*speed;
     item.position.set(x,h,z+offset);
+    if(line.outfeed)line.outfeed.update(item,offset-end,t);
     const state=Math.abs(offset)<.65?'称重中':offset>=-1.2 && offset<-.65?'读码中':'待料';
     if(last===state)return;
     ctx.fillStyle='#183731';ctx.fillRect(0,0,256,104);ctx.fillStyle='#b6e1b3';ctx.textAlign='center';
     ctx.font='bold 45px "Microsoft YaHei",sans-serif';ctx.fillText(state,128,68);tex.needsUpdate=true;last=state;
   }};
+  return line;
 }
 
 export function dressStaging(batch,site){

@@ -1,6 +1,7 @@
 import * as T from 'three';
-import {amber,batch,dark,frame,metal,platform,side,steel} from './hardware.js';
+import {amber,batch,dark,frame,metal,panelSign,platform,side,steel} from './hardware.js';
 import {dressStaging,fitReceipt,parcelBuffer} from './workcells.js';
+import {createReceivingInspection} from './receiving-inspection.js';
 import {createFloorOperations} from './floor-operations.js';
 
 const concrete=metal('#97a49f',.92,.01),fascia=metal('#53666d',.76,.25),wall=metal('#c8ceca',.80,.11);
@@ -12,14 +13,6 @@ export function workingBounds(data){
     ...data.tables.places.map(i=>i.at.map((n,j)=>n+data.tables.offset[j]))];
   return [[Math.min(...points.map(p=>p[0]))-7,Math.min(...points.map(p=>p[1]))-1.5],
     [Math.max(...points.map(p=>p[0]))+7,Math.max(...points.map(p=>p[1]))+9]];
-}
-function panelSign(text,width){
-  const canvas=document.createElement('canvas');canvas.width=384;canvas.height=112;
-  const ctx=canvas.getContext('2d');ctx.fillStyle='#26454b';ctx.fillRect(0,0,384,112);
-  ctx.fillStyle='#efb24f';ctx.fillRect(0,0,12,112);ctx.fillStyle='#f3f2e9';ctx.font='bold 62px "Microsoft YaHei",sans-serif';
-  ctx.textBaseline='middle';ctx.textAlign='center';ctx.fillText(text,196,57);
-  const tex=new T.CanvasTexture(canvas);tex.colorSpace=T.SRGBColorSpace;
-  return new T.Mesh(new T.PlaneGeometry(width,width*112/384),new T.MeshBasicMaterial({map:tex,toneMapped:false,side:T.DoubleSide}));
 }
 function iColumn(b,x,z,h){
   for(const dx of [-.22,.22])b.box(x+dx,h/2,z,.065,h,.51,wall);
@@ -87,7 +80,7 @@ function servicePlatform(b,outline){
     for(const lift of [.53,.99])b.beam([x,lift,zTop-run],[x,h+lift,zTop],.044,.044,ochre);
   }
 }
-export function createHall(data,assets,texture){
+export function createHall(data,assets,texture,furniture){
   const group=new T.Group(),b=batch(group),[[x0,z0],[x1,z1]]=workingBounds(data),w=x1-x0,d=z1-z0;
   const mx=(x1+x0)/2,floor=data.site?.floorOperations,wallEnd=floor?.hallEnd??z1;
   const dockUpper=new T.Group(),upper=batch(dockUpper);group.add(dockUpper);
@@ -247,29 +240,8 @@ export function createHall(data,assets,texture){
     const platform=batch(serviceDeck);servicePlatform(platform,equipment.serviceDeck);
     platform.finish();group.add(serviceDeck);
   }
-  if(equipment?.receipts){
-    const first=receipts[0],last=receipts.at(-1),left=first.at[0]-.68,right=last.at[0]+.68;
-    const front=first.at[1]+first.end,back=equipment.sources[0][0][1],middle=(front+back)/2;
-    // A single diagram volume joins the six external interfaces. Its interior is unspecified.
-    const cap=2.35,midX=(left+right)/2;
-    const region=new T.Mesh(new T.BoxGeometry(right-left,cap,back-front),
-      new T.MeshBasicMaterial({color:'#819a98',transparent:true,opacity:.24,depthWrite:false}));
-    region.position.set(midX,cap/2,middle);group.add(region);
-    const edge=new T.LineSegments(new T.EdgesGeometry(region.geometry),new T.LineBasicMaterial({color:'#688380'}));
-    region.add(edge);
-    for(const x of [left,right])for(let z=front;z<back;z+=1.25){
-      const length=Math.min(.8,back-z);b.box(x,.016,z+length/2,.056,.016,length,ochre);
-    }
-    const faces=[...receipts.map(({at,end})=>[at[0],at[1]+end,.8,.8]),
-      ...equipment.sources.map(path=>[path[0][0],path[0][1],path[0][2],1.2])];
-    for(const [x,z,h,w] of faces){
-      for(const sign of [-1,1])b.box(x+sign*(w/2+.09),h+.34,z,.085,.82,.13,fascia);
-      b.box(x,h+.76,z,w+.26,.08,.13,fascia);
-    }
-    const sign=panelSign('上游工序示意',4.15);
-    sign.rotation.x=-Math.PI/2;sign.position.set(midX,cap+.025,middle);group.add(sign);
-  }
+  const inspection=createReceivingInspection(group,receipts,equipment?.sources,furniture);
   const buffer=equipment?parcelBuffer(group,b,data.site,data.sorter,assets):null;
   b.finish();upper.finish();
-  return {group,meter:receipts[0],receipts,additionalReceipts,operations,buffer,overhead,dockUpper,serviceDeck,bounds:[[x0,dockZ-apronDepth],[x1,z1]]};
+  return {group,meter:receipts[0],receipts,additionalReceipts,inspection,operations,buffer,overhead,dockUpper,serviceDeck,bounds:[[x0,dockZ-apronDepth],[x1,z1]]};
 }

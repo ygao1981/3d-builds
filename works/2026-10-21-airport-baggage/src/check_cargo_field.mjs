@@ -62,6 +62,66 @@ try{
       await shot(label.replace(' ',''));
     }
   }
+  if(await page.evaluate(()=>!!window.__cargo.inspectionCue)){
+    await overview.selectOption('0');
+    await page.locator('[data-tag="inspection"]').click();
+    assert.equal(await page.locator('.cargo-caption h2').innerText(),'收货安检');
+    await page.locator('[data-projection="paper"]').click();
+    assert.equal(await page.evaluate(()=>window.__cargo.hall.group.visible),false);
+    await page.locator('[data-projection="3d"]').click();
+    await page.locator('.cargo-flow').getByRole('button',{name:'收货安检'}).click();
+    assert.equal(await overview.locator('option:checked').innerText(),'收货安检');
+    assert.match(await page.locator('.cargo-reading').innerText(),/需要开包/);
+    await page.getByRole('button',{name:'暂停',exact:true}).click();
+    report.inspection=await page.evaluate(()=>{
+      const c=window.__cargo,s=c.hall.inspection,{line,machine,curtains}=s,parcel=line.item;
+      const matrix=machine.matrix.clone(),halfLength=parcel.userData.size[2]/2;
+      const originalDesk=s.desk.getObjectByName('review_desk_body'),originalTable=s.table.getObjectByName('search_table_body');
+      const display=s.desk.children.find(o=>o.material?.map?.isCanvasTexture);
+      const belt=s.group.children.find(m=>m.isInstancedMesh && m.material.color.getHex()===0x343f43);
+      let maxGap=0,maxDrift=0,peakPitch=0,contacts=0;
+      const raised=i=>{curtains.getMatrixAt(i,matrix);return Math.abs(matrix.elements[6])>.3;};
+      const halfCurtain=curtains.count/2,middle=Math.floor(halfCurtain/2);
+      const stages=[];
+      for(const d of [-.25,0,.3,s.centre-s.half,s.centre,s.centre+s.half,s.centre+s.half+1.3,s.length-.27]){
+        line.update(line.timeAt(line.end+d));
+        const local=s.group.worldToLocal(parcel.getWorldPosition(parcel.position.clone()));
+        maxDrift=Math.max(maxDrift,Math.abs(local.x),Math.abs(local.z-d));
+        peakPitch=Math.max(peakPitch,Math.abs(parcel.rotation.x));
+        if(d>.28){
+          // Compare the bottom of the actual carton against the top face of the rendered belt.
+          for(const sign of [-1,1]){
+            const foot=local.clone().set(0,0,sign*halfLength);
+            s.group.worldToLocal(parcel.localToWorld(foot));
+            for(let j=0;j<belt.count;j++){
+              belt.getMatrixAt(j,matrix);
+              const p=foot.clone().applyMatrix4(matrix.clone().invert());
+              if(Math.abs(p.x)<.49 && Math.abs(p.z)<.49){
+                contacts++;
+                const surface=p.clone().setY(.5).applyMatrix4(matrix);
+                maxGap=Math.max(maxGap,Math.abs(surface.y-foot.y));
+              }
+            }
+          }
+        }
+        stages.push([raised(middle),raised(halfCurtain+middle),display.material.map.source.version,parcel.visible]);
+      }
+      const benchMotion=[0,3.6,7].map(t=>{line.update(t);return s.checkedItem.position.y;});
+      line.update(line.timeAt(line.start+1));
+      return {originalFurniture:!!(originalDesk && originalTable),maxGap,maxDrift,peakPitch,contacts,
+        manualCheck:s.checkedItem!==parcel && benchMotion[1]-benchMotion[0]>.3 && Math.abs(benchMotion[2]-benchMotion[0])<.001,
+        entryOnly:stages[3][0] && !stages[3][1],exitOnly:!stages[5][0] && stages[5][1],
+        atRest:[stages[0],stages[4],stages[6]].every(([a,b])=>!a && !b),
+        screenChanges:stages[4][2]>stages[3][2] && stages[6][2]>stages[5][2],
+        visible:stages.every(s=>s[3]),resetLevel:Math.abs(parcel.rotation.x)<1e-8};
+    });
+    const s=report.inspection;
+    assert(s.originalFurniture && s.entryOnly && s.exitOnly && s.atRest && s.screenChanges && s.visible && s.resetLevel && s.manualCheck);
+    assert(s.contacts>=6 && s.maxGap<.002 && s.maxDrift<.0001 && s.peakPitch>.02);
+    await page.locator('.cargo-flow').getByRole('button',{name:'收货安检'}).click();
+    await page.waitForFunction(()=>window.__cargo.time>window.__cargo.inspectionCue.time+.35);
+    await shot('收货安检工位');
+  }
   await overview.selectOption('-1');
   const close=await distance();
   await page.getByRole('combobox',{name:'总览范围'}).selectOption('0');await shot('01b-entire-hall');
@@ -390,6 +450,21 @@ try{
     });
     assert(report.mobileExtent.flat().every(v=>Math.abs(v)<1),'全场范围应在窄屏内完整显示');
   }
+  if(report.inspection){
+    await page.locator('.cargo-flow').getByRole('button',{name:'收货安检'}).click();
+    assert.equal(await overview.locator('option:checked').innerText(),'收货安检');
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth));
+    await shot('收货安检-手机');
+    const fallback=await browser.newPage();
+    await fallback.route('**/assets/screening.glb',r=>r.abort());
+    await fallback.goto(url);await fallback.waitForFunction(()=>!!window.__cargo,undefined,{timeout:90000});
+    await fallback.locator('.cargo-flow').getByRole('button',{name:'收货安检'}).click();
+    report.inspection.fallback=await fallback.evaluate(()=>{
+      const s=window.__cargo.hall.inspection;
+      return [s.desk,s.table].every(g=>g.children.some(m=>m.isInstancedMesh)) && s.line.item.visible;
+    });
+    assert(report.inspection.fallback);await fallback.close();
+  }
   const old=await browser.newPage();
   await old.route('**/project-layout/layout.json',async route=>{
     const response=await route.fetch(),data=await response.json();delete data.site;
@@ -397,6 +472,8 @@ try{
   });
   await old.route('**/vehicle_forklift_red_c01.glb',r=>r.abort());
   await old.goto(url);await old.waitForFunction(()=>!!window.__cargo,undefined,{timeout:90000});
+  assert.equal(await old.locator('.cargo-flow').getByRole('button',{name:'收货安检'}).count(),0);
+  assert.equal(await old.evaluate(()=>!!window.__cargo.hall.inspection),false);
   await old.locator('[data-area="dock"]').click();await old.locator('[data-cue="truck"]').click();
   report.previousLayout=await old.evaluate(()=>({view:window.__cargo.view,missingCartons:window.__cargo.missingCartons,receipt:!!window.__cargo.hall.meter}));
   assert.deepEqual(report.previousLayout,{view:'dock',missingCartons:0,receipt:false});

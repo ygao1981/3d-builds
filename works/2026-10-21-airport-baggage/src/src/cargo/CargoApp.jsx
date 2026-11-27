@@ -19,6 +19,9 @@ const capture=new URLSearchParams(location.search).has('capture');
 
 function describe(key,d,selection){
   const eq=d.site?.distributionEquipment;
+  if(key==='overview' && selection==='收货安检')return {sheet:d.site.reference,parts:'PR0020-F1005 至 F1007',
+    note:'收货计量后，纸箱沿输送带进入 X 光机。判图在操作台完成，需要开包时在人工复核台处理。画面展示一个代表工位。',
+    metrics:[['机检设备','货物 X 光机'],['配套工位','判图台、人工复核台'],['设备外形与摆位','工艺示意']]};
   if(key==='sorting' && selection?.startsWith('供包台 ')){
     const s=d.sorter,f=s.feedDeck;
     if(f){
@@ -81,13 +84,14 @@ export default function CargoApp(){
     if(next!==layer)show(view,mode,equipmentView(view,next)===subject?focus:-1,next);
   }
   const machines=engine.current?.plant;
+  const inspection=engine.current?.inspectionCue;
   const replayCues=({pallet:machines?.pallet,sorting:machines?.sorting,chutes:machines?.sorting,dock:machines?.dockOps,tables:machines?.packing})[subject]?.cues;
   function replay(id,cue){
     const scene=engine.current;
     const stayOnLower=view==='sorting' && layer==='lower' && cue.view==='pallet';
     show(stayOnLower?view:cue.view,'3d',cue.focus);scene.seek(cue.time);
     scene.setSpeed(1);scene.setPaused(false);setSpeed(1);setPaused(false);
-    if(capture)setFilmAction(replayLabels[id]);
+    if(capture)setFilmAction(replayLabels[id] || id);
   }
   const isMeter=data?.site && subject==='sorting' && focus===data.sorter.feeds.length;
   const active=views.find(([id])=>id===subject),devices=engine.current?.nav[subject]||[];
@@ -108,7 +112,7 @@ export default function CargoApp(){
       <nav aria-label="工艺区域">{views.map(([id,name,sub,icon])=><button type="button" key={id} data-area={id} aria-pressed={view===id} onClick={()=>show(id,mode)} disabled={!data}>
         <Icon name={icon} size={20}/><span><strong>{name}</strong><small>{sub}</small></span></button>)}</nav>
       {detail && <section className="cargo-facts"><h3>设备资料</h3><dl>{detail.metrics.map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl><small>设备表　{detail.parts}</small>
-        <details><summary>模型来源</summary><p>叉车、纸箱、货车内的木托盘和入口滚筒使用 NVIDIA SimReady 资产，由 CodePawl 转换。空托盘线采用设备表 N04 的平面塑料托盘。货物摆放、作业节拍及设备内部构造为演示设定。</p>
+        <details><summary>模型来源</summary><p>叉车、纸箱、货车内的木托盘和入口滚筒使用 NVIDIA SimReady 资产，由 CodePawl 转换。空托盘线采用设备表 N04 的平面塑料托盘。收货安检使用通用机体和项目工作台模型。货物摆放及作业节拍为演示设定。</p>
           <a href={manifest.source.datasetUrl+'/tree/'+manifest.source.revision} target="_blank" rel="noreferrer">资产版本</a> · <a href={manifest.source.licenseUrl} target="_blank" rel="noreferrer">CC BY 4.0</a></details></section>}
     </aside>
     <main className="cargo-main"><canvas ref={canvas} tabIndex={data && panorama?0:-1} aria-label={panorama?'主站房全景自由视角':'货站物流设备三维视窗'}/>
@@ -128,6 +132,7 @@ export default function CargoApp(){
       {data && view==='overview' && mode==='3d' && <div className="cargo-map-tags">
         {[['pallet','下层空托盘','overview',1],['dock','装卸交接','dock',-1],['sorting','自动分拣环线','sorting',-1],['tables','组板作业','tables',engine.current.packingLabel],
           ...(data.site?[['meter','收货计量','sorting',data.sorter.feeds.length]]:[]),
+          ...(inspection && focus!==inspection.focus?[['inspection','收货安检','overview',inspection.focus]]:[]),
           ...(data.site?.floorOperations?[['tracks','整板交接地轨','overview',2],['agv','AGV 暂存','overview',3],
             ['apron','待运与复重','overview',4],['legacy','利旧平台','overview',5]]:[])].map(([id,label,area,target])=>
           <button key={id} type="button" data-tag={id} ref={el=>engine.current?.tag(id,el)} onClick={()=>show(area,'3d',target)}>{label}</button>)}</div>}
@@ -137,6 +142,7 @@ export default function CargoApp(){
         <b/>工艺图线</div>}
       {data && view==='overview' && mode==='3d' && <div className="cargo-flow" aria-label="作业流程">
         <div><span>散件</span>{(data.site?[['收货计量',machines.sorting.cues.meter]]:[]).concat([
+          ...(inspection?[['收货安检',inspection]]:[]),
           ['斜向供包',machines.sorting.cues.feed],['滑槽卸载',machines.sorting.cues.unload],['格口码盘',machines.sorting.cues.stack]]).map(([name,cue],i)=>
           <button key={name} type="button" onClick={()=>replay(name,cue)}>{i>0 && <i aria-hidden="true">→</i>}{name}</button>)}</div>
         <div><span>板货</span>{[['叉车送料',machines.packing.cues.supply],['组板',machines.packing.cues.build],['整板交接',machines.dockOps.cues.handoff]].map(([name,cue],i)=>
@@ -151,7 +157,7 @@ export default function CargoApp(){
       {(status && !data || error) && <div className="cargo-loading" role={error?'alert':'status'}>{error || status}
         {error && <button type="button" onClick={()=>location.reload()}>重新加载</button>}</div>}
     </main>
-    <footer className="cargo-bottom"><div className="cargo-reading"><strong>{mode==='3d'?(isMeter?'收货计量工位':active[2]):mode==='paper'?'工艺图纸局部':'图模位置对照'}</strong>
+    <footer className="cargo-bottom"><div className="cargo-reading"><strong>{mode==='3d'?(selection==='收货安检'?'货物过机与人工复核':isMeter?'收货计量工位':active[2]):mode==='paper'?'工艺图纸局部':'图模位置对照'}</strong>
       <span>{mode==='3d'?reading:mode==='paper' && view==='sorting'?'原图保留图面上的全部线条。可用滚轮放大、拖动平移。':'按图纸原方向俯视，可用滚轮放大、拖动平移。'}</span></div>
       <div className="cargo-actions">
         {devices.length>0 && (view!=='overview' || mode==='3d') && <select aria-label={view==='overview'?'总览范围':'设备定位'} value={focus} onChange={e=>show(view,mode,Number(e.target.value))}>
