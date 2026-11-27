@@ -85,7 +85,7 @@ function booth(b,[[a,c],[v,f]]){
   b.box(x,h+.23,z,w+.34,.16,d+.36,rim);
   b.box(x,h+.328,z,w+.06,.036,d+.08,concrete);
 }
-function apronTrain(b,{tractor:[tx,z],dollies}){
+export function apronTrain(b,{tractor:[tx,z],dollies}){
   const wheels=(x,cz,width,length)=>{
     for(const sign of [-1,1])for(const dx of [-length/2,length/2]){
       const side=cz+sign*width/2;

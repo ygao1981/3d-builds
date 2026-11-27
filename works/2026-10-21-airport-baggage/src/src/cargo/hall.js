@@ -3,6 +3,7 @@ import {amber,batch,dark,frame,metal,panelSign,platform,side,steel} from './hard
 import {dressStaging,fitReceipt,parcelBuffer} from './workcells.js';
 import {createReceivingInspection} from './receiving-inspection.js';
 import {createFloorOperations} from './floor-operations.js';
+import {createFreightOperations} from './freight-operations.js';
 
 const concrete=metal('#97a49f',.92,.01),fascia=metal('#53666d',.76,.25),wall=metal('#c8ceca',.80,.11);
 const pale=metal('#e4ddbf',.88,0),glazing=metal('#62818a',.28,.55),ochre=metal('#d5a23c',.79,.09);
@@ -235,6 +236,7 @@ export function createHall(data,assets,texture,furniture){
     data.site?[fitReceipt(group,data.site.receipt,assets)]:[];
   const additionalReceipts=(floor?.receipts||[]).map(({at,extension},i)=>fitReceipt(group,at,assets,extension,i+3,dockZ,false));
   const operations=floor?createFloorOperations(group,b,floor,data.site.bounds):null;
+  const freight=data.site?.freight?createFreightOperations(group,data.site,additionalReceipts,assets):null;
   const serviceDeck=new T.Group();
   if(equipment?.serviceDeck){
     const platform=batch(serviceDeck);servicePlatform(platform,equipment.serviceDeck);
@@ -243,5 +245,8 @@ export function createHall(data,assets,texture,furniture){
   const inspection=createReceivingInspection(group,receipts,equipment?.sources,furniture,assets.worker);
   const buffer=equipment?parcelBuffer(group,b,data.site,data.sorter,assets):null;
   b.finish();upper.finish();
-  return {group,meter:receipts[0],receipts,additionalReceipts,inspection,operations,buffer,overhead,dockUpper,serviceDeck,bounds:[[x0,dockZ-apronDepth],[x1,z1]]};
+  const outer=data.site?.freight?.perimeter;
+  const bounds=outer?[[Math.min(x0,outer[0][0]),Math.min(dockZ-apronDepth,outer[0][1])],
+    [Math.max(x1,outer[1][0]),Math.max(z1,outer[1][1])]]:[[x0,dockZ-apronDepth],[x1,z1]];
+  return {group,meter:receipts[0],receipts,additionalReceipts,inspection,operations,freight,buffer,overhead,dockUpper,serviceDeck,bounds};
 }

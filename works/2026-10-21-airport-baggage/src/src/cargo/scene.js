@@ -89,7 +89,7 @@ export function targets(data,inspection,packing) {
       {label:'AGV 暂存工位',at:floor.agv.at,width:26,depth:18,az:-.24},
       {label:'待运区与复重秤',at:floor.apronFocus,width:92,depth:34,az:.12},
       {label:'利旧作业平台',at:middle(...floor.existing.deck),width:19,depth:33,az:.68}
-    ]:[]),...(inspection?[inspection.target]:[])],
+    ]:[]),...(inspection?[inspection.target]:[]),...(data.site?.freight?.nodes||[])],
   };
 }
 
@@ -135,6 +135,7 @@ export async function openCargo(canvas, onStatus) {
   const meshes={sorting:plant.sorting.group,pallet:plant.pallet.group,dock:plant.dock,tables:plant.tables};
   const hall=createHall(data,models,markings,furniture);
   scene.add(hall.group);
+  if(hall.freight)scene.add(hall.freight.studio);
   const drawings={},lines=traces(data,plant);
   for(const [id,obj] of Object.entries(meshes)){
     const [x,z]=offsets[id];obj.position.set(x,0,z);lines[id].position.set(x,0,z);
@@ -187,7 +188,7 @@ export async function openCargo(canvas, onStatus) {
     const k=activeRegion(),r=refs(data)[k];
     if(k==='overview'){
       const station=nav.overview[focus];
-      if(mode==='3d' && station?.at)return {at:station.at,w:station.width,d:station.depth,y:.8};
+      if(mode==='3d' && station?.at)return {at:station.at,w:station.width,d:station.depth,y:station.key==='canopy'?3:station.independent?1.2:.8};
       if(mode==='3d' && focus===1){
         const p=data.pallet,mid=middle(p.turns[0],p.tails[Math.floor(p.tails.length/2)]);
         return {at:mid.map((v,i)=>v+p.offset[i]),w:distanceX(p.inlets.map(a=>[a]))+8,d:22,y:1.16};
@@ -265,13 +266,15 @@ export async function openCargo(canvas, onStatus) {
     page=view;key=subject;layer=page==='sorting'?selectedLayer:'both';mode=projection;focus=target;
     const k=activeRegion();
     const view3d=mode==='3d';
+    const selected=k==='overview' && view3d?nav.overview[focus]:null,isolated=!!selected?.independent;
+    hall.freight?.setView(selected,k==='overview' && view3d && (focus===0 || !!selected?.key));
     for(const [id,obj] of Object.entries(meshes)){
-      obj.visible=view3d && !(k==='pallet' && id==='sorting') && !(layer==='upper' && id==='pallet');
+      obj.visible=view3d && !isolated && !(k==='pallet' && id==='sorting') && !(layer==='upper' && id==='pallet');
       const onSheet=k==='overview' || k===id || (k==='sorting' && id==='pallet');
       drawings[id].visible=!view3d && onSheet && (id!=='pallet' || k==='pallet');
       lines[id].visible=onSheet && mode==='overlay';
     }
-    const showLower=k==='overview' && view3d;
+    const showLower=k==='overview' && view3d && !isolated;
     plant.sorting.section(showLower?(focus===1?2:1):0);
     lines.pallet.visible=showLower || (mode==='overlay' && layer!=='upper' && ['overview','sorting','pallet'].includes(k));
     lines.pallet.position.y=showLower?data.pallet.deck+.16:0;
@@ -279,7 +282,7 @@ export async function openCargo(canvas, onStatus) {
     lowerInk.color.set(showLower?'#14776a':'#a94416');lowerInk.linewidth=showLower?1.65:2.6;
     lowerInk.transparent=showLower;lowerInk.opacity=showLower?.72:1;
     if(drawings.hall)drawings.hall.visible=!view3d && k!=='pallet';
-    hall.group.visible=view3d;hall.overhead.visible=k==='overview' && focus===0;hall.dockUpper.visible=k!=='dock';
+    hall.group.visible=view3d && !isolated;hall.overhead.visible=k==='overview' && focus===0;hall.dockUpper.visible=k!=='dock' && selected?.key!=='dispatch';
     hall.serviceDeck.visible=k!=='pallet';
     plant.chutePacking.group.visible=meshes.sorting.visible && meshes.pallet.visible;
     if(hall.operations)hall.operations.lettering.visible=k==='overview' && (focus<1 || focus===4);
@@ -297,7 +300,7 @@ export async function openCargo(canvas, onStatus) {
       const fullFloor=key==='overview' && focus===0 && !!hall.operations;
       const fitLower=page==='sorting' && key==='pallet' && focus<0;
       const az=heading ?? nav[key][focus]?.az ?? (key==='overview'?(focus===1?-.50:perspective.aspect<.8?(fullFloor?-Math.PI/2:-1.34):fullFloor?-.055:-.18):key==='dock'?2.46:key==='tables'?.49:key==='pallet' && !fitLower?-.61:.37);
-      const angle=nav[key][focus]?.elevation ?? (key==='overview'?(focus===1?.47:fullFloor?.68:.81):key==='dock'?.70:key==='tables'?.62:key==='pallet'?(focus<0?.89:.56):.70);
+      const angle=nav[key][focus]?.elevation ?? (key==='overview'?(focus===1?.47:fullFloor?(hall.freight?.90:.68):isolated?.48:.81):key==='dock'?.70:key==='tables'?.62:key==='pallet'?(focus<0?.89:.56):.70);
       const horizontal=ex.w*Math.abs(Math.cos(az))+ex.d*Math.abs(Math.sin(az));
       const depth=ex.w*Math.abs(Math.sin(az))+ex.d*Math.abs(Math.cos(az));
       const fit=Math.max(horizontal/perspective.aspect,depth*Math.sin(angle));
@@ -346,6 +349,7 @@ export async function openCargo(canvas, onStatus) {
       apron:[...nav.overview[4].at,1.2],legacy:[...nav.overview[5].at,.56]}:{}),
   };
   const packingLabel=plant.packing.active;
+  if(hall.freight)for(const id of ['manual','inbound','transfer'])labels[id]=[...hall.freight.nodes[id].at,.9];
   labels.tables=[...data.tables.places[packingLabel].at.map((n,i)=>n+offsets.tables[i]),2.1];
   const tagPoint=new T.Vector3();
   function tag(key,element){if(element)tags.set(key,element);else tags.delete(key);}
@@ -373,8 +377,10 @@ export async function openCargo(canvas, onStatus) {
       if(meshes.sorting.visible)plant.sorting.update(time);
       if(meshes.pallet.visible)plant.pallet.update(time);
       if(plant.chutePacking.group.visible)plant.chutePacking.update(time);
-      plant.dockOps.update(time);plant.packing.update(time);hall.receipts.forEach(unit=>unit.update(time));
+      plant.dockOps.update(time,key==='overview' && nav.overview[focus]?.key==='dispatch');
+      plant.packing.update(time);hall.receipts.forEach(unit=>unit.update(time));
       hall.additionalReceipts.forEach(unit=>unit.update(time));
+      if(hall.group.visible && hall.freight?.goods.visible)hall.freight.update(time);
     }
     if(inOverview()){
       moveOverview(dt);

@@ -54,6 +54,15 @@
 .cargo-map-tags button[data-tag=pallet]{background:#12685d;border-color:#5d968a;border-left-color:#a4d9c9}
 .cargo-map-tags button:hover,.cargo-map-tags button:focus-visible{background:#0f625c}
 .cargo-film .cargo-map-tags{display:none}
+.cargo-batch-toggle{display:flex;align-items:center;gap:5px;pointer-events:auto;padding:4px 0 1px;font-size:11px;color:#365856;cursor:pointer}
+.cargo-batch-toggle input{margin:0;accent-color:#12665c}
+.cargo-mobile-tags{display:none}
+@media(max-width:640px){.cargo-mobile-tags{display:flex}.cargo-touch-clear{display:none}}
+.cargo-flow.cargo-business{max-width:calc(100% - 32px);align-items:center;box-sizing:border-box}
+.cargo-flow-choice{flex-wrap:wrap}.cargo-flow-choice label{font-size:12px;font-weight:650;color:#344f56}
+.cargo-flow-choice select{font:inherit;font-size:12px;color:#154f49;border:1px solid #a8bdb7;border-radius:3px;background:white;padding:4px}
+.cargo-business .cargo-flow-steps{flex-wrap:wrap;gap:1px 3px}.cargo-business button[aria-pressed=true]{font-weight:700;text-decoration:underline}
+@media(max-width:640px){.cargo-flow.cargo-business{max-width:calc(100% - 12px);align-items:flex-start}.cargo-business .cargo-flow-choice select{font-size:11px;padding:2px}.cargo-batch-toggle{font-size:10px}}
 @media(max-width:640px){.cargo-map-tags button{font-size:10px;padding:3px 5px}.cargo-replay{max-width:98%;left:4px;gap:3px}.cargo-replay span{display:none}.cargo-replay button{padding:5px;font-size:10px}}
 
 .cargo-flow{position:absolute;bottom:12px;left:16px;display:flex;flex-wrap:wrap;gap:6px 14px;padding:5px 9px;background:#f8faf7f5;border:1px solid #b0c0bc;border-radius:4px}

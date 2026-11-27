@@ -10,18 +10,18 @@ const net=metal('#34574c',.88,.02),body=metal('#e1e2d9',.67,.22);
 const smooth=t=>{t=T.MathUtils.clamp(t,0,1);return t*t*(3-2*t);};
 const phase=(t,a,b)=>smooth((t-a)/(b-a));
 
-function carton(b,x,y,z,w,h,d,i=0){
+export function carton(b,x,y,z,w,h,d,i=0){
   b.box(x,y+h/2,z,w,h,d,kraft[i%kraft.length]);
   b.box(x,y+h+.003,z,w*.13,.007,d,tape);
   b.box(x,y+h*.57,z+d/2+.004,w*.24,h*.24,.009,paper);
 }
-function palletBase(b,x,y,z,w,d){
+export function palletBase(b,x,y,z,w,d){
   for(const k of [-.43,0,.43])b.box(x+k*w,y+.056,z,.09,.108,d,wood);
   for(let k=0;k<6;k++)b.box(x,y+.124,z+(k-2.5)*d/6,w,.035,d*.14,tape);
 }
 
 // A metal air-cargo board, cartons, and crossed restraint straps. y always denotes its support surface.
-function board(b,x,y,z,w,d,layers,strapped,seed=0){
+export function board(b,x,y,z,w,d,layers,strapped,seed=0){
   b.box(x,y+.025,z,w,.05,d,steel);
   for(const s of [-1,1])b.box(x,y+.058,z+s*(d/2-.027),w,.036,.052,dark);
   const cw=(w-.13)/3,cd=(d-.15)/3,h=.43,base=y+.06;
@@ -50,7 +50,7 @@ function board(b,x,y,z,w,d,layers,strapped,seed=0){
   }
 }
 
-function forkTruck(assets){
+export function forkTruck(assets){
   const vehicle=new T.Group();
   if(assets.vehicle_forklift_red_c01){
     const model=assets.vehicle_forklift_red_c01.clone(true);vehicle.add(model);
@@ -171,8 +171,8 @@ export function createDockOperations(group,s,assets){
   const lifts=s.handoffs.map((path,i)=>liftingHandoff(group,path,s,i));
   b.finish();
   const drop=z+5.5,pick=z-3.35;
-  function update(time){
-    const t=mod(time,30);
+  function update(time,dispatch=false){
+    const t=mod(dispatch?-time:time,30);
     let loadZ=pick, forkZ;
     if(t<6){forkZ=lerp(z+5.6,pick+1.94,phase(t,0,6));}
     else if(t<17){loadZ=lerp(pick,drop,phase(t,6,17));forkZ=loadZ+1.94;}
