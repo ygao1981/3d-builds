@@ -6,7 +6,8 @@ import {walkingRoute} from './worker.js';
 import {createInboundWork} from './inbound-work.js';
 
 const roof=metal('#bac5c5',.70,.26),column=metal('#819b9c',.65,.38),concrete=metal('#a0aaa5',.95,.02);
-const windows=metal('#506f73',.38,.32),finish=metal('#c6d0c9',.87,.04),rubber=metal('#354346',.92,.04);
+const finish=metal('#c6d0c9',.87,.04),rubber=metal('#354346',.92,.04);
+const roomFloor=metal('#c5bd9f',.95,.02);
 const smooth=(t,a,b)=>T.MathUtils.smoothstep(t,a,b);
 
 function canopyStructure(parent,survey){
@@ -32,14 +33,28 @@ function canopyStructure(parent,survey){
   b.finish();
 }
 
-function ancillary(b,[[x,z],[xx,zz]]){
-  const w=xx-x,d=zz-z,cx=(x+xx)/2,cz=(z+zz)/2;
-  b.box(cx,1.46,cz,w,2.91,d,finish);
-  b.box(cx,3.01,cz,w+.30,.15,d+.3,roof);
-  for(const edge of [x,xx]){
-    b.box(edge,.4,cz,.14,.75,d,side);
-    for(let s=z+3;s<zz-2;s+=5.5)b.box(edge,1.81,s,.17,.79,2.6,windows);
+// Cut both wings at the same display height. The drawing registers walls on the floor plane.
+function sideRoom(group,room){
+  const root=new T.Group(),b=batch(root);
+  root.name=room.key;group.add(root);
+  for(const polygon of room.floors){
+    const shape=new T.Shape(polygon.map(([x,z])=>new T.Vector2(x,-z)));
+    const slab=new T.Mesh(new T.ShapeGeometry(shape),roomFloor);
+    slab.rotation.x=-Math.PI/2;slab.position.y=.035;slab.receiveShadow=true;root.add(slab);
   }
+  function walls(paths,width,cap){
+    for(const line of paths){
+      for(let i=1;i<line.length;i++){
+        const [x,z]=line[i-1],[xx,zz]=line[i],cx=(x+xx)/2,cz=(z+zz)/2;
+        const w=Math.abs(xx-x)+width,d=Math.abs(zz-z)+width;
+        b.box(cx,.765,cz,w,1.53,d,finish);
+        b.box(cx,.116,cz,w+.018,.22,d+.018,concrete);
+        b.box(cx,1.55,cz,w+.012,.04,d+.012,cap);
+      }
+    }
+  }
+  walls(room.shell,.27,frame);walls(room.partitions,.16,column);
+  b.finish();
 }
 
 function flaredRollers(b,start,end,z,outerAtStart){
@@ -261,7 +276,7 @@ export function createFreightOperations(hall,site,receipts,assets,views){
   const [[left,front],[right,back]]=info.perimeter,[[oldLeft],[oldRight,oldBack]]=site.bounds;
   b.box((left+right)/2,-.145,(back+oldBack)/2,right-left,.27,back-oldBack,concrete);
   for(const [a,c] of [[left,oldLeft],[oldRight,right]])b.box((a+c)/2,-.15,(oldBack+front)/2,c-a,.27,oldBack-front,concrete);
-  info.wings.forEach(w=>ancillary(b,w));
+  for(const room of info.sideRooms||[])sideRoom(fixed,room);
   const manual=manualOutlets(fixed,info.manual,receipts);
   const floorWeigh=floorWeighing(fixed,goods,site.floorScales,assets);
   const [ix,iz]=nodes.inbound.at,[tx,tz]=nodes.transfer.at;

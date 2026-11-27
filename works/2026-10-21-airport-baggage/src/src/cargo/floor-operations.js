@@ -123,6 +123,9 @@ export function insideFloor(outline,x,z){
 export function floorUse(data,x,z){
   const site=data.site,f=site.floorOperations;
   const hit=([cx,cz],w,d)=>Math.abs(x-cx)<=w/2 && Math.abs(z-cz)<=d/2;
+  for(const room of site.freight?.sideRooms||[]){
+    if(room.floors.some(p=>insideFloor(p,x,z)))return [room.label,room.note];
+  }
   if(f.workAreas?.some(poly=>insideFloor(poly,x,z)))
     return ['进港快件作业区','用于进港快件及物品查验、上线交接、暂扣和超期暂存。'];
   if(site.floorScales?.some(p=>hit(p,4,4)))return ['收货电子地磅','整托落在秤面上，叉车退出后称货。'];

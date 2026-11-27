@@ -24,13 +24,15 @@ export function equipmentView(page,layer){
 }
 
 function traces(data,plant) {
-  const groups={sorting:new T.Group(),pallet:new T.Group(),dock:new T.Group(),tables:new T.Group()};
+  const groups={sorting:new T.Group(),pallet:new T.Group(),dock:new T.Group(),tables:new T.Group(),sideRooms:new T.Group()};
   const mat=new LineMaterial({color:'#008179',linewidth:2.6,depthTest:false,depthWrite:false,toneMapped:false});
   const lowerMat=mat.clone();lowerMat.color.set('#a94416');
   function trace(key,line) {
     const geo=new LineGeometry();geo.setPositions(line.flatMap(([x,z])=>[x,.02,z]));
     const obj=new Line2(geo,key==='pallet'?lowerMat:mat);obj.renderOrder=10;groups[key].add(obj);
   }
+  for(const room of data.site?.freight?.sideRooms||[])
+    for(const line of [...room.shell,...room.partitions])trace('sideRooms',line);
   const loop=plant.sorting.loop,s=data.sorter,p=data.pallet;
   trace('sorting',Array.from({length:241},(_,i)=>loop.at(i*loop.length/240)));
   const eq=data.site?.distributionEquipment;
@@ -142,6 +144,7 @@ export async function openCargo(canvas,onStatus,onFreeBrowse=()=>{}) {
   scene.add(hall.group);
   if(hall.freight)scene.add(hall.freight.studio);
   const drawings={},lines=traces(data,plant);
+  scene.add(lines.sideRooms);
   for(const [id,obj] of Object.entries(meshes)){
     const [x,z]=offsets[id];obj.position.set(x,0,z);lines[id].position.set(x,0,z);
     scene.add(obj,lines[id]);
@@ -193,7 +196,8 @@ export async function openCargo(canvas,onStatus,onFreeBrowse=()=>{}) {
     const k=activeRegion(),r=refs(data)[k];
     if(k==='overview'){
       const station=nav.overview[focus];
-      if(mode==='3d' && station?.at)return {at:station.at,w:station.width,d:station.depth,y:station.key==='canopy'?3:station.independent?1.2:.8};
+      if(station?.at && (mode==='3d' || station.planCut))
+        return {at:station.at,w:station.width,d:station.depth,y:station.key==='canopy'?3:station.independent?1.2:.8};
       if(mode==='3d' && focus===1){
         const p=data.pallet,mid=middle(p.turns[0],p.tails[Math.floor(p.tails.length/2)]);
         return {at:mid.map((v,i)=>v+p.offset[i]),w:distanceX(p.inlets.map(a=>[a]))+8,d:22,y:1.16};
@@ -286,6 +290,7 @@ export async function openCargo(canvas,onStatus,onFreeBrowse=()=>{}) {
     const lowerInk=lines.pallet.children[0].material;
     lowerInk.color.set(showLower?'#14776a':'#a94416');lowerInk.linewidth=showLower?1.65:2.6;
     lowerInk.transparent=showLower;lowerInk.opacity=showLower?.72:1;
+    lines.sideRooms.visible=k==='overview' && mode==='overlay';
     if(drawings.hall)drawings.hall.visible=!view3d && k!=='pallet';
     hall.group.visible=view3d && !isolated;hall.overhead.visible=k==='overview' && focus===0;hall.dockUpper.visible=k!=='dock' && selected?.key!=='dispatch';
     hall.serviceDeck.visible=k!=='pallet';
@@ -356,7 +361,7 @@ export async function openCargo(canvas,onStatus,onFreeBrowse=()=>{}) {
   };
   const packingLabel=plant.packing.active;
   if(hall.freight)for(const station of nav.overview){
-    if(station.key && !station.independent)labels[station.key]=[...station.at,1.1];
+    if(station.key && !station.independent)labels[station.key]=[...(station.labelAt||station.at),1.1];
   }
   labels.tables=[...data.tables.places[packingLabel].at.map((n,i)=>n+offsets.tables[i]),2.1];
   const tagPoint=new T.Vector3();

@@ -23,6 +23,8 @@ function describe(key,d,selection,station){
   const eq=d.site?.distributionEquipment;
   const workface=key==='overview' && selection && station?.key && station;
   if(workface){
+    if(workface.planCut)return {sheet:d.site.reference,parts:workface.sheet,note:workface.note,
+      metrics:[['图示范围','首层主要墙线'],['用途','辅助用房'],['建筑立面','待建筑图核对']]};
     const facts=({canopy:[['主跨 / 外挑','34 / 5.5 m'],['工艺净高','5 m']],
       inWork:[['作业对象','进港快件、物品'],['作业环节','上线、查验、放行交接'],['异常批次','暂扣、超期暂存']],
       inReview:[['作业内容','交接、复核、出件'],['工位摆位','功能示意']],
@@ -114,7 +116,8 @@ export default function CargoApp(){
   }
   const isMeter=data?.site && subject==='sorting' && focus===data.sorter.feeds.length;
   const active=views.find(([id])=>id===subject),devices=engine.current?.nav[subject]||[];
-  const selection=mode==='3d'?devices[focus]?.label:undefined;
+  const sideRoomView=view==='overview' && !freeBrowse && !!devices[focus]?.planCut;
+  const selection=mode==='3d' || sideRoomView?devices[focus]?.label:undefined;
   const separate=panorama && devices[focus]?.independent;
   const guided=!!step && flow!=='工位速览' && mode==='3d';
   const sample=panorama && !freeBrowse && ['inWork','inReview','inHolding'].includes(devices[focus]?.key);
@@ -133,7 +136,7 @@ export default function CargoApp(){
     <aside className="cargo-side"><h2>工艺区域</h2>
       <nav aria-label="工艺区域">{views.map(([id,name,sub,icon])=><button type="button" key={id} data-area={id} aria-pressed={view===id} onClick={()=>show(id,mode)} disabled={!data}>
         <Icon name={icon} size={20}/><span><strong>{name}</strong><small>{sub}</small></span></button>)}</nav>
-      {detail && <section className="cargo-facts"><h3>设备资料</h3><dl>{detail.metrics.map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl><small>设备表　{detail.parts}</small>
+      {detail && <section className="cargo-facts"><h3>{sideRoomView?'建筑资料':'设备资料'}</h3><dl>{detail.metrics.map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl><small>{sideRoomView?'依据图纸':'设备表'}　{detail.parts}</small>
         <details><summary>模型来源</summary><p>叉车、纸箱、货车内的木托盘和入口滚筒使用 NVIDIA SimReady 资产，由 CodePawl 转换。空托盘线采用设备表 N04 的平面塑料托盘。收货安检使用通用机体和项目工作台模型。货物摆放及作业节拍为演示设定。</p>
           <a href={manifest.source.datasetUrl+'/tree/'+manifest.source.revision} target="_blank" rel="noreferrer">设备资产版本</a> · <a href={manifest.source.licenseUrl} target="_blank" rel="noreferrer">CC BY 4.0</a>
           <p>作业员使用 {workerAsset.creator} 制作的通用工装人物。搬运和复核动作按演示工位编排。</p>
@@ -145,7 +148,7 @@ export default function CargoApp(){
       onPointerCancel={()=>{tap.current=null;}}
       onPointerUp={e=>{const t=tap.current;tap.current=null;if(t?.[0]===e.pointerId && Math.hypot(e.clientX-t[1],e.clientY-t[2])<=6)setFloorPick(engine.current?.inspectFloor(e.clientX,e.clientY));}}
       onWheel={()=>{if(floorPick)setFloorPick(null);}} onKeyDown={()=>{if(floorPick)setFloorPick(null);}}/>
-      {detail && <div className="cargo-caption"><span>{detail.sheet.sheet}　·　{separate?'独立工序示意':sample?'工位组合示意':'1∶'+detail.sheet.scale}</span><h2>{freeBrowse?'主站房自由浏览':selection || (view==='overview' && mode==='3d'?'主站房作业联动':active[1])}</h2>
+      {detail && <div className="cargo-caption"><span>{detail.sheet.sheet}　·　{separate?'独立工序示意':sideRoomView && mode==='3d'?'首层剖视':sample?'工位组合示意':'1∶'+detail.sheet.scale}</span><h2>{freeBrowse?'主站房自由浏览':selection || (view==='overview' && mode==='3d'?'主站房作业联动':active[1])}</h2>
         {freeBrowse && selection && <small>上次定位　{selection}</small>}
         {data?.site?.floorOperations && view==='overview' && mode==='3d' && focus<1 &&
           <small className="cargo-floor-key"><i/>理货与待运 <b/>图示作业区</small>}
@@ -172,10 +175,10 @@ export default function CargoApp(){
           ...(inspection && focus!==inspection.focus?[['inspection','收货安检','overview',inspection.focus]]:[]),
           ...(data.site?.floorOperations?[['tracks','整板交接地轨','overview',2],['agv','AGV 暂存','overview',3],
             ['apron','待运与复重','overview',4],['legacy','利旧平台','overview',5]]:[]),
-          ...devices.flatMap((n,i)=>['manual','inbound','pickup','transfer','crossWait','expressWait','outPacking','floorWeigh','inOnline','inReview','inHolding'].includes(n.key)?[[n.key,n.label,'overview',i]]:[])].map(([id,label,area,target])=>
+          ...devices.flatMap((n,i)=>n.planCut || ['manual','inbound','pickup','transfer','crossWait','expressWait','outPacking','floorWeigh','inOnline','inReview','inHolding'].includes(n.key)?[[n.key,n.label,'overview',i]]:[])].map(([id,label,area,target])=>
           <button key={id} type="button" data-tag={id} ref={el=>engine.current?.tag(id,el)} onClick={()=>show(area,'3d',target)}>{label}</button>)}</div>}
       {mode==='overlay' && <div className="cargo-legend">
-        {subject!=='pallet' && <><i/>设备中心线及轮廓</>}
+        {subject!=='pallet' && <><i/>{sideRoomView?'辅房主要墙线':subject==='overview' && data?.site?.freight?.sideRooms?'设备轮廓与辅房墙线':'设备中心线及轮廓'}</>}
         {layer!=='upper' && ['sorting','chutes','pallet','overview'].includes(subject) && <><i className="cargo-lower"/>空托盘线</>}
         <b/>工艺图线</div>}
       {data?.site?.freight && (panorama || guided) && <FreightFlows scene={engine.current} flow={flow} setFlow={value=>{

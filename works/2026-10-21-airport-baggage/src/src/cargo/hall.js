@@ -84,6 +84,9 @@ function servicePlatform(b,outline){
 export function createHall(data,assets,texture,furniture,workViews=[]){
   const group=new T.Group(),b=batch(group),[[x0,z0],[x1,z1]]=workingBounds(data),w=x1-x0,d=z1-z0;
   const mx=(x1+x0)/2,floor=data.site?.floorOperations,wallEnd=floor?.hallEnd??z1;
+  const sideRooms=data.site?.freight?.sideRooms;
+  const [frontLeft,frontRight]=sideRooms?.length===2?sideRooms.map(room=>room.joint[0]).sort((a,c)=>a-c):[x0,x1];
+  const frontCentre=(frontLeft+frontRight)/2,frontWidth=frontRight-frontLeft;
   const dockUpper=new T.Group(),upper=batch(dockUpper);group.add(dockUpper);
   const bays=data.dock.levellers.map(t=>({id:t.id,x:t.at[0]+data.dockOffset[0],z:t.at[1]+data.dockOffset[1]}));
   const dockZ=bays[0].z-data.dock.levelSize[1]/2;
@@ -151,7 +154,7 @@ export function createHall(data,assets,texture,furniture,workViews=[]){
     b.box((a+c)/2,.46,dockZ+.02,c-a,.92,.22,fascia);
     for(let x=a+.8;x<c;x+=1.55)upper.box(x,2.51,dockZ+.105,.029,2.87,.035,concrete);
   }
-  let last=x0;
+  let last=frontLeft;
   for(const gate of gates){
     const half=gate.width/2;rearWall(last,gate.x-half);last=gate.x+half;
     for(const s of [-1,1]){
@@ -165,33 +168,22 @@ export function createHall(data,assets,texture,furniture,workViews=[]){
     const placard=panelSign(gate.id.replace('A01-',''),1.55);
     placard.position.set(gate.x,4.24,dockZ+.17);group.add(placard);
   }
-  rearWall(last,x1);
-  upper.box(mx,4.27,dockZ,w,.53,.24,wall);upper.box(mx,4.95,dockZ,w,.84,.17,glazing);
-  upper.box(mx,5.48,dockZ,w,.21,.31,fascia);
-  for(let x=x0+.5;x<=x1;x+=4.1)upper.box(x,4.96,dockZ,.095,.93,.22,wall);
-  for(const x of [x0,x1]){
-    b.box(x,.46,(dockZ+wallEnd)/2,.22,.92,wallEnd-dockZ,wall);
-    b.box(x,.94,(dockZ+wallEnd)/2,.34,.085,wallEnd-dockZ,fascia);
-  }
-  for(const x of [x0,x1]){
-    const sign=x===x0?1:-1;
-    for(let a=dockZ;a<wallEnd-6;a+=12){
-      const end=Math.min(a+12,wallEnd-6),height=a<dockZ+30?5.30:a<dockZ+62?3.45:1.35;
-      b.box(x,height/2,(a+end)/2,.18,height,end-a,wall);
-      b.box(x+sign*.10,.50,(a+end)/2,.06,.42,end-a,fascia);
-      if(height>2){
-        b.box(x+sign*.105,height-.58,(a+end)/2,.05,.68,end-a-.32,glazing);
-        for(let zz=a+2;zz<end;zz+=2.5)b.box(x+sign*.14,height-.58,zz,.08,.73,.085,wall);
-      }
-      b.box(x,height+.05,(a+end)/2,.28,.12,end-a,fascia);
-      iColumn(b,x+(sign*.15),a,height+.1);
+  rearWall(last,frontRight);
+  upper.box(frontCentre,4.27,dockZ,frontWidth,.53,.24,wall);upper.box(frontCentre,4.95,dockZ,frontWidth,.84,.17,glazing);
+  upper.box(frontCentre,5.48,dockZ,frontWidth,.21,.31,fascia);
+  for(let x=frontLeft+.5;x<=frontRight;x+=4.1)upper.box(x,4.96,dockZ,.095,.93,.22,wall);
+  // Older equipment-only kits give a working-floor extent, without a building survey.
+  if(!data.site?.freight){
+    for(const x of [x0,x1]){
+      b.box(x,.46,(dockZ+wallEnd)/2,.22,.92,wallEnd-dockZ,wall);
+      b.box(x,.94,(dockZ+wallEnd)/2,.34,.085,wallEnd-dockZ,fascia);
     }
   }
   // The roof is cut away. Only a narrow rear strip is shown, so the handling floor remains visible.
   const col=data.site?.columns || [];
   for(const [x,z] of col)iColumn(b,x,z,5.6);
   const majorX=[...new Set(col.map(p=>Math.round(p[0]*2)/2))].sort((a,c)=>a-c);
-  const piers=[x0,...majorX.filter((x,i)=>x>x0+2 && x<x1-2 && (!i || x-majorX[i-1]>1.5)),x1];
+  const piers=[frontLeft,...majorX.filter((x,i)=>x>frontLeft+2 && x<frontRight-2 && (!i || x-majorX[i-1]>1.5)),frontRight];
   for(let i=1;i<piers.length;i++){
     const a=piers[i-1],c=piers[i];truss(upper,a,c,5.08,dockZ+2.8);
     upper.box((a+c)/2,6.09,dockZ+.98,c-a,.11,3.93,wall);
