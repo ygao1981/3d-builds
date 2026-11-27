@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {Icon} from '../ui/icons.jsx';
-import {openCargo} from './scene.js';
+import {equipmentView,openCargo} from './scene.js';
 import manifest from '../simready-assets.json';
 import './cargo.css';
 
@@ -13,6 +13,7 @@ const views=[
   ['tables','组板作业','理货、组板与系网','box'],
 ];
 const modes=[['3d','三维演示'],['overlay','图纸叠合'],['paper','工艺原图']];
+const layers=[['both','上下层同看'],['upper','上层分拣环线'],['lower','下层空托盘']];
 const replayLabels={feed:'斜向供包',unload:'滑槽卸载',stack:'格口人工码盘',release:'底部拆盘',turn:'托盘转向',transfer:'顶升移载',chain:'横向链条输送',meter:'收货扫码称重',distribute:'分流排队',truck:'货车卸货',raise:'交接台升降',handoff:'整板交接',build:'纸箱组板',supply:'叉车送料'};
 const capture=new URLSearchParams(location.search).has('capture');
 
@@ -45,6 +46,7 @@ export default function CargoApp(){
   const canvas=useRef(null), engine=useRef(null);
   const [data,setData]=useState(null),[status,setStatus]=useState('正在读取工艺图纸…'),[error,setError]=useState('');
   const [view,setView]=useState('overview'),[mode,setMode]=useState('3d'),[focus,setFocus]=useState(-1);
+  const [layer,setLayer]=useState('both');
   const [paused,setPaused]=useState(false),[speed,setSpeed]=useState(1);
   const [filmAction,setFilmAction]=useState('');
   useEffect(()=>{
@@ -56,19 +58,32 @@ export default function CargoApp(){
     }).catch(e=>{if(active){console.error(e);setError(e.message.includes('布局') || e.message.includes('尚未配置')?e.message:'设备模型或图纸加载失败。请检查本地资料并确认浏览器已启用图形加速。');}});
     return ()=>{active=false;scene?.dispose();if(window.__cargo===scene)delete window.__cargo;};
   },[]);
-  function show(v=view,m=mode,i=(v==='overview' && m==='3d' && engine.current?.hall.operations?0:-1)){engine.current?.show(v,m,i);setView(v);setMode(m);setFocus(i);if(capture)setFilmAction('');}
+  const subject=equipmentView(view,layer);
+  function show(v=view,m=mode,i=(v==='overview' && m==='3d' && engine.current?.hall.operations?0:-1),nextLayer=v==='sorting' && v===view?layer:'both'){
+    engine.current?.show(v,m,i,nextLayer);
+    setView(v);setMode(m);setFocus(i);setLayer(nextLayer);if(capture)setFilmAction('');
+  }
+  function selectLayer(next){
+    if(next!==layer)show(view,mode,equipmentView(view,next)===subject?focus:-1,next);
+  }
   const machines=engine.current?.plant;
-  const replayCues=({pallet:machines?.pallet,sorting:machines?.sorting,chutes:machines?.sorting,dock:machines?.dockOps,tables:machines?.packing})[view]?.cues;
+  const replayCues=({pallet:machines?.pallet,sorting:machines?.sorting,chutes:machines?.sorting,dock:machines?.dockOps,tables:machines?.packing})[subject]?.cues;
   function replay(id,cue){
     const scene=engine.current;
-    show(cue.view,'3d',cue.focus);scene.seek(cue.time);
+    const stayOnLower=view==='sorting' && layer==='lower' && cue.view==='pallet';
+    show(stayOnLower?view:cue.view,'3d',cue.focus);scene.seek(cue.time);
     scene.setSpeed(1);scene.setPaused(false);setSpeed(1);setPaused(false);
     if(capture)setFilmAction(replayLabels[id]);
   }
-  const isMeter=data?.site && view==='sorting' && focus===data.sorter.feeds.length;
-  const active=views.find(([id])=>id===view),devices=engine.current?.nav[view]||[];
+  const isMeter=data?.site && subject==='sorting' && focus===data.sorter.feeds.length;
+  const active=views.find(([id])=>id===subject),devices=engine.current?.nav[subject]||[];
   const selection=mode==='3d'?devices[focus]?.label:undefined;
-  const detail=data && describe(view,data,selection);
+  const detail=data && describe(subject,data,selection);
+  let reading=detail?.note;
+  if(data && view==='sorting' && focus<0 && layer==='both')
+    reading=`交叉带输送面高 ${data.sorter.deck.toFixed(2)} 米。环线下方的空托盘线向滑槽末端供盘，切换设备层可查看交接位置。`;
+  if(data && view==='sorting' && layer==='lower' && Number.isFinite(data.pallet.chainDeck))
+    reading=`拆盘后，托盘经旋转台进入 ${data.pallet.chainDeck.toFixed(2)} 米高的横向链条线，再由 ${data.pallet.deck.toFixed(2)} 米高的滚筒支路送到滑槽卸货侧。`;
   return <div className={'cargo-shell'+(capture?' cargo-film':'')}>
     <header className="cargo-header">
       <span className="cargo-brand"><Icon name="plane" size={24}/></span>
@@ -85,7 +100,10 @@ export default function CargoApp(){
     <main className="cargo-main"><canvas ref={canvas} aria-label="货站物流设备三维视窗"/>
       {detail && <div className="cargo-caption"><span>{detail.sheet.sheet}　·　1∶{detail.sheet.scale}</span><h2>{selection || (view==='overview' && mode==='3d'?'主站房作业联动':active[1])}</h2>
         {data?.site?.floorOperations && view==='overview' && mode==='3d' && focus<1 &&
-          <small className="cargo-floor-key"><i/>理货与待运 <b/>仅示作业占地</small>}</div>}
+          <small className="cargo-floor-key"><i/>理货与待运 <b/>仅示作业占地</small>}
+        {view==='sorting' && <div className="cargo-layers" role="group" aria-label="设备分层">{layers.map(([id,label])=>
+          <button key={id} type="button" data-layer={id} aria-pressed={layer===id} onClick={()=>selectLayer(id)}>{label}</button>)}</div>}
+      </div>}
       <div className="cargo-projections" role="group" aria-label="查看方式">{modes.map(([id,name])=><button key={id} type="button" data-projection={id} aria-pressed={mode===id} onClick={()=>show(view,id,focus)} disabled={!data}>{name}</button>)}</div>
       {data && view==='overview' && mode==='3d' && <div className="cargo-map-tags">
         {[['pallet','下层空托盘','overview',1],['dock','装卸交接','dock',-1],['sorting','自动分拣环线','sorting',-1],['tables','组板作业','tables',engine.current.packingLabel],
@@ -94,8 +112,8 @@ export default function CargoApp(){
             ['apron','待运与复重','overview',4],['legacy','利旧平台','overview',5]]:[])].map(([id,label,area,target])=>
           <button key={id} type="button" data-tag={id} ref={el=>engine.current?.tag(id,el)} onClick={()=>show(area,'3d',target)}>{label}</button>)}</div>}
       {mode==='overlay' && <div className="cargo-legend">
-        {view!=='pallet' && <><i/>设备中心线及轮廓</>}
-        {['sorting','chutes','pallet','overview'].includes(view) && <><i className="cargo-lower"/>空托盘线</>}
+        {subject!=='pallet' && <><i/>设备中心线及轮廓</>}
+        {layer!=='upper' && ['sorting','chutes','pallet','overview'].includes(subject) && <><i className="cargo-lower"/>空托盘线</>}
         <b/>工艺图线</div>}
       {data && view==='overview' && mode==='3d' && <div className="cargo-flow" aria-label="作业流程">
         <div><span>散件</span>{(data.site?[['收货计量',machines.sorting.cues.meter]]:[]).concat([
@@ -105,7 +123,7 @@ export default function CargoApp(){
           <button key={name} type="button" onClick={()=>replay(name,cue)}>{i>0 && <i aria-hidden="true">→</i>}{name}</button>)}</div>
       </div>}
       {mode==='3d' && replayCues && <div className="cargo-replay" role="group" aria-label="工艺动作回放">
-        <span>动作回放</span>{Object.entries(replayCues).map(([id,cue])=>
+        <span>动作回放</span>{Object.entries(replayCues).filter(([,cue])=>layer!=='upper' || cue.view==='sorting').map(([id,cue])=>
           <button type="button" key={id} data-cue={id} onClick={()=>replay(id,cue)}>{replayLabels[id]}</button>)}</div>}
       {data && engine.current.missingCartons>0 && <div className="cargo-asset-notice" role="status">
         有 {engine.current.missingCartons} 款纸箱未载入，正在使用已有纸箱演示。</div>}
@@ -114,7 +132,7 @@ export default function CargoApp(){
         {error && <button type="button" onClick={()=>location.reload()}>重新加载</button>}</div>}
     </main>
     <footer className="cargo-bottom"><div className="cargo-reading"><strong>{mode==='3d'?(isMeter?'收货计量工位':active[2]):mode==='paper'?'工艺图纸局部':'图模位置对照'}</strong>
-      <span>{mode==='3d'?detail?.note:'按图纸原方向俯视，可用滚轮放大、拖动平移。'}</span></div>
+      <span>{mode==='3d'?reading:mode==='paper' && view==='sorting'?'原图保留图面上的全部线条。可用滚轮放大、拖动平移。':'按图纸原方向俯视，可用滚轮放大、拖动平移。'}</span></div>
       <div className="cargo-actions">
         {devices.length>0 && (view!=='overview' || mode==='3d') && <select aria-label={view==='overview'?'总览范围':'设备定位'} value={focus} onChange={e=>show(view,mode,Number(e.target.value))}>
           <option value={-1}>{view==='overview'?'重点工位联动':['dock','tables'].includes(view) && mode==='3d'?'作业视角':'区域全貌'}</option>{devices.map((x,i)=><option key={x.label} value={i}>{x.label}</option>)}</select>}

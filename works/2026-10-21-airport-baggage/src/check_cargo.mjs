@@ -13,6 +13,94 @@ const page=await browser.newPage({viewport:{width:1440,height:900}});
 page.on('pageerror',e=>results.errors.push(e.message));
 page.on('response',r=>{const p=new URL(r.url()).pathname;if(p.endsWith('.glb')||p.startsWith('/project-layout/'))results.assets.push([p,r.status()]);});
 const waitFrame=()=>page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+
+async function checkSortingLayers(){
+  const area=page.locator('[data-area="sorting"]'),layers=page.getByRole('group',{name:'设备分层'});
+  const device=page.getByRole('combobox',{name:'设备定位'});
+  const speed=page.getByRole('combobox',{name:'演示倍速'});
+  const press=id=>layers.locator('[data-layer="'+id+'"]').click();
+  const projection=id=>page.locator('[data-projection="'+id+'"]').click();
+  await area.click();await projection('3d');
+  await speed.selectOption('2');
+  const time=await page.evaluate(()=>window.__cargo.time);
+  const checks={};
+  for(const id of ['both','upper','lower']){
+    await press(id);await waitFrame();
+    const actual=await page.evaluate(()=>{
+      const {view,plant,hall,data,time,getCamera,getTarget}=window.__cargo;
+      const {sorting,pallet,chutePacking}=plant,p=pallet.group.position;
+      return {view,sorting:sorting.group.visible,pallet:pallet.group.visible,packing:chutePacking.group.visible,
+        platform:hall.serviceDeck.visible,position:[p.x,p.z],registered:data.pallet.offset,time,
+        camera:getCamera().position.toArray(),target:getTarget().toArray()};
+    });
+    assert.equal(await area.getAttribute('aria-pressed'),'true');assert.equal(actual.view,'sorting');
+    assert.equal(await layers.locator('[aria-pressed=true]').getAttribute('data-layer'),id);
+    assert.equal(actual.sorting,id!=='lower');assert.equal(actual.pallet,id!=='upper');
+    assert.equal(actual.platform,id!=='lower');assert.equal(actual.packing,id==='both');
+    assert.equal(actual.time,time);assert.deepEqual(actual.position,actual.registered);
+    assert.equal(await speed.inputValue(),'2');
+    checks[id]=actual;
+    await page.screenshot({path:path.join(dest,'sorting-layer-'+id+'.png')});
+  }
+  assert.deepEqual(checks.upper.camera,checks.both.camera);
+  const heading=({camera,target})=>Math.atan2(camera[0]-target[0],camera[2]-target[2]);
+  assert(Math.abs(heading(checks.lower)-heading(checks.upper))<.001);
+  const lowerFootprint=()=>page.evaluate(()=>{
+    const c=window.__cargo,p=c.data.pallet,g=c.plant.pallet.group;
+    const points=[...p.inlets,...p.tails].map(([x,z])=>g.localToWorld(g.position.clone().set(x,p.deck,z)).project(c.getCamera()));
+    const xs=points.map(v=>v.x),ys=points.map(v=>v.y);
+    return {visible:points.every(v=>Math.abs(v.x)<1 && Math.abs(v.y)<1 && Math.abs(v.z)<1),
+      width:(Math.max(...xs)-Math.min(...xs))/2,height:(Math.max(...ys)-Math.min(...ys))/2};
+  });
+  checks.lower.desktopFootprint=await lowerFootprint();
+  assert(checks.lower.desktopFootprint.visible && checks.lower.desktopFootprint.width>.50);
+  const lowerLabels=await device.locator('option').allTextContents();
+  assert(lowerLabels.includes('拆盘机 1') && lowerLabels.includes('旋转台 2') && lowerLabels.includes('移载支路 9'));
+  assert.deepEqual(await page.locator('[data-cue]').evaluateAll(nodes=>nodes.map(n=>n.dataset.cue).sort()),['chain','release','transfer','turn']);
+  await page.locator('[data-cue="chain"]').click();
+  assert.equal(await device.locator('option:checked').innerText(),'横向输送链');
+  assert.equal(await area.getAttribute('aria-pressed'),'true');
+  const start=await page.evaluate(()=>window.__cargo.plant.pallet.movers[0].load.position.toArray());
+  await page.waitForFunction(start=>window.__cargo.plant.pallet.movers[0].load.position.toArray().some((n,i)=>Math.abs(n-start[i])>.1),start,{timeout:8000});
+  await page.getByRole('button',{name:'暂停',exact:true}).click();
+  await page.getByRole('button',{name:'重置视角'}).click();assert.equal(await device.inputValue(),'-1');
+  assert.equal(await layers.locator('[data-layer=lower]').getAttribute('aria-pressed'),'true');
+  for(const id of ['lower','upper','both']){
+    await press(id);await projection('paper');await waitFrame();
+    const sheet=await page.evaluate(id=>{
+      const {data,plant}=window.__cargo,expected=id==='lower'?data.pallet.reference:data.sorter.reference;
+      const images=plant.sorting.group.parent.children.filter(o=>o.visible && o.material?.map?.image?.src)
+        .map(o=>new URL(o.material.map.image.src).pathname.split('/').pop());
+      return {expected,images};
+    },id);
+    assert(sheet.images.includes(sheet.expected.image));assert((await page.locator('.cargo-caption').innerText()).includes(sheet.expected.sheet));
+    assert.equal(sheet.images.includes('pallet.png'),id==='lower');
+    await projection('overlay');await waitFrame();
+    const strokes=await page.evaluate(()=>window.__cargo.plant.sorting.group.parent.children
+      .filter(o=>o.visible && o.children[0]?.isLine2).length);
+    assert.equal(strokes,id==='both'?2:1);
+    const legend=await page.locator('.cargo-legend').innerText();assert.equal(legend.includes('空托盘线'),id!=='upper');
+    checks[id].sheet=sheet.expected.sheet;checks[id].overlayGroups=strokes;
+  }
+  await projection('3d');await press('lower');await page.setViewportSize({width:390,height:844});await waitFrame();
+  assert(await page.evaluate(()=>!window.__cargo.plant.sorting.group.visible && window.__cargo.plant.pallet.group.visible));
+  checks.lower.mobileFootprint=await lowerFootprint();
+  assert(checks.lower.mobileFootprint.visible && checks.lower.mobileFootprint.width>.65);
+  const bounds=await layers.boundingBox(),projections=await page.getByRole('group',{name:'查看方式'}).boundingBox();
+  assert(bounds.x>=0 && bounds.x+bounds.width<=390 && bounds.y>=projections.y+projections.height);
+  await page.screenshot({path:path.join(dest,'sorting-layer-mobile.png')});
+  await layers.locator('[data-layer=upper]').focus();await page.keyboard.press('Enter');
+  assert((await device.locator('option').allTextContents()).includes('供包台 1'));assert.equal(await device.inputValue(),'-1');
+  assert.equal(await page.locator('[data-cue="stack"],[data-cue="unload"]').count(),0);
+  await page.locator('[data-cue="feed"]').click();await waitFrame();
+  assert.equal(await layers.locator('[data-layer=upper]').getAttribute('aria-pressed'),'true');
+  assert(await page.evaluate(()=>window.__cargo.plant.sorting.group.visible && !window.__cargo.plant.pallet.group.visible));
+  await page.getByRole('button',{name:'暂停',exact:true}).click();
+  await page.locator('[data-area="pallet"]').click();assert.equal(await layers.count(),0);
+  await area.click();assert.equal(await layers.locator('[data-layer=both]').getAttribute('aria-pressed'),'true');
+  await page.setViewportSize({width:1440,height:900});await waitFrame();
+  return checks;
+}
 try{
   await page.goto(url);await page.waitForFunction(()=>Boolean(window.__cargo),undefined,{timeout:60000});
   const state=await page.evaluate(()=>{const c=window.__cargo,d=c.data,gl=c.renderer.getContext(),ext=gl.getExtension('WEBGL_debug_renderer_info');
@@ -71,6 +159,7 @@ try{
     }
     results.views.push(area);
   }
+  results.sortingLayers=await checkSortingLayers();
   await page.locator('[data-area="dock"]').click();await page.locator('[data-projection="3d"]').click();
   await page.getByRole('combobox',{name:'设备定位'}).selectOption('0');await waitFrame();
   await page.getByRole('button',{name:'重置视角'}).click();

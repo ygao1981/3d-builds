@@ -15,6 +15,10 @@ const cargoModels=manifest.models.filter(model=>model.projects.includes('cargo')
 const refs=(d)=>({sorting:d.sorter.reference,pallet:d.pallet.reference,dock:d.dock.reference,tables:d.tables.reference});
 const middle=(a,b)=>[(a[0]+b[0])/2,(a[1]+b[1])/2];
 
+export function equipmentView(page,layer){
+  return page==='sorting' && layer==='lower'?'pallet':page;
+}
+
 function traces(data,plant) {
   const groups={sorting:new T.Group(),pallet:new T.Group(),dock:new T.Group(),tables:new T.Group()};
   const mat=new LineMaterial({color:'#008179',linewidth:2.6,depthTest:false,depthWrite:false,toneMapped:false});
@@ -112,6 +116,7 @@ export async function openCargo(canvas, onStatus) {
     const [x,z]=offsets[id];obj.position.set(x,0,z);lines[id].position.set(x,0,z);
     scene.add(obj,lines[id]);
   }
+  const palletBounds=new T.Box3().setFromObject(meshes.pallet);
   for(const [id,img] of images){
     const r=id==='hall'?data.site.reference:refs(data)[id],[x,z]=offsets[id];
     img.colorSpace=T.SRGBColorSpace;img.anisotropy=4;
@@ -122,7 +127,8 @@ export async function openCargo(canvas, onStatus) {
   const perspective=new T.PerspectiveCamera(34,1,.05,1200), ortho=new T.OrthographicCamera(-1,1,1,-1,.05,1200);
   const ctrl=new OrbitControls(perspective,canvas);ctrl.enableDamping=true;ctrl.dampingFactor=.12;ctrl.minDistance=2;
   ctrl.maxDistance=420;ctrl.maxPolarAngle=Math.PI*.484;ctrl.enablePan=true;ctrl.target.set(0,0,0);
-  let key='overview', mode='3d', focus=-1, camera=perspective, time=21, paused=false, speed=1, disposed=false, last, frameId;
+  let page='overview', key=page, layer='both', mode='3d', focus=-1;
+  let camera=perspective, time=21, paused=false, speed=1, disposed=false, last, frameId;
   const nav=targets(data);
   function activeRegion() {return key==='chutes'?'sorting':key;}
   function extent() {
@@ -166,6 +172,10 @@ export async function openCargo(canvas, onStatus) {
       }
       if(key==='tables')return local(data.tables.places[plant.packing.active].at,25,18,1.0);
       if(key==='sorting')return local([0,-1.6],46,36,2);
+      if(page==='sorting' && key==='pallet'){
+        const {min,max}=palletBounds,padding=data.pallet.width;
+        return {at:middle([min.x,min.z],[max.x,max.z]),w:max.x-min.x+padding,d:max.z-min.z+padding,y:data.pallet.deck};
+      }
       if(key==='pallet')return local(middle(data.pallet.turns[0],data.pallet.transfers[4]),33,20,1);
     }
     if(key==='chutes'){const a=data.sorter.chutes;return local(middle(a[0][0],a.at(-1)[1]),distanceX(a)+5,12,1.5);}
@@ -178,27 +188,34 @@ export async function openCargo(canvas, onStatus) {
     const a=extent(), half=Math.max(a.d/2,a.w/2/(w/h))*1.07;
     ortho.left=-half*w/h;ortho.right=-ortho.left;ortho.top=half;ortho.bottom=-half;ortho.updateProjectionMatrix();
   }
-  function show(view=key,projection=mode,target=-1) {
-    key=view;mode=projection;focus=target;
+  function show(view=page,projection=mode,target=-1,selectedLayer='both') {
+    const subject=equipmentView(view,selectedLayer);
+    const switchingLayer=view==='sorting' && view===page && selectedLayer!==layer && projection===mode && target===focus;
+    const keepPose=switchingLayer && subject===key;
+    const heading=switchingLayer && subject!==key && mode==='3d' && focus<0?ctrl.getAzimuthalAngle():undefined;
+    page=view;key=subject;layer=page==='sorting'?selectedLayer:'both';mode=projection;focus=target;
     const k=activeRegion();
     const view3d=mode==='3d';
     for(const [id,obj] of Object.entries(meshes)){
-      obj.visible=view3d && !(k==='pallet' && id==='sorting');
+      obj.visible=view3d && !(k==='pallet' && id==='sorting') && !(layer==='upper' && id==='pallet');
       const onSheet=k==='overview' || k===id || (k==='sorting' && id==='pallet');
       drawings[id].visible=!view3d && onSheet && (id!=='pallet' || k==='pallet');
       lines[id].visible=onSheet && mode==='overlay';
     }
     const showLower=k==='overview' && view3d;
     plant.sorting.section(showLower?(focus===1?2:1):0);
-    lines.pallet.visible=showLower || (mode==='overlay' && ['overview','sorting','pallet'].includes(k));
+    lines.pallet.visible=showLower || (mode==='overlay' && layer!=='upper' && ['overview','sorting','pallet'].includes(k));
     lines.pallet.position.y=showLower?data.pallet.deck+.16:0;
     const lowerInk=lines.pallet.children[0].material;
     lowerInk.color.set(showLower?'#14776a':'#a94416');lowerInk.linewidth=showLower?1.65:2.6;
     lowerInk.transparent=showLower;lowerInk.opacity=showLower?.72:1;
     if(drawings.hall)drawings.hall.visible=!view3d && k!=='pallet';
     hall.group.visible=view3d;hall.overhead.visible=k==='overview' && focus===0;hall.dockUpper.visible=k!=='dock';
+    hall.serviceDeck.visible=k!=='pallet';
+    plant.chutePacking.group.visible=meshes.sorting.visible && meshes.pallet.visible;
     if(hall.operations)hall.operations.lettering.visible=k==='overview' && (focus<1 || focus===4);
     scene.background.set(view3d?'#a9bab9':'#f2f4f1');
+    if(keepPose)return;
     camera=mode==='3d'?perspective:ortho;ctrl.object=camera;ctrl.enableRotate=mode==='3d';
     ctrl.mouseButtons.LEFT=mode==='3d'?T.MOUSE.ROTATE:T.MOUSE.PAN;
     ctrl.touches.ONE=mode==='3d'?T.TOUCH.ROTATE:T.TOUCH.PAN;
@@ -207,16 +224,18 @@ export async function openCargo(canvas, onStatus) {
     const ex=extent(),[x,z]=ex.at;resize();
     if(mode==='3d'){
       const fullFloor=key==='overview' && focus===0 && !!hall.operations;
-      const az=nav[key][focus]?.az ?? (key==='overview'?(focus===1?-.50:perspective.aspect<.8?(fullFloor?-Math.PI/2:-1.34):fullFloor?-.055:-.18):key==='dock'?2.46:key==='tables'?.49:key==='pallet'?-.61:.37);
+      const fitLower=page==='sorting' && key==='pallet' && focus<0;
+      const az=heading ?? nav[key][focus]?.az ?? (key==='overview'?(focus===1?-.50:perspective.aspect<.8?(fullFloor?-Math.PI/2:-1.34):fullFloor?-.055:-.18):key==='dock'?2.46:key==='tables'?.49:key==='pallet' && !fitLower?-.61:.37);
       const angle=key==='overview'?(focus===1?.47:fullFloor?.68:.81):key==='dock'?.70:key==='tables'?.62:key==='pallet'?(focus<0?.89:.56):.70;
       const horizontal=ex.w*Math.abs(Math.cos(az))+ex.d*Math.abs(Math.sin(az));
       const depth=ex.w*Math.abs(Math.sin(az))+ex.d*Math.abs(Math.cos(az));
       const fit=Math.max(horizontal/perspective.aspect,depth*Math.sin(angle));
       const tangent=Math.tan(T.MathUtils.degToRad(perspective.fov/2));
       let distance=fit/(2*tangent)*1.10+depth*Math.cos(angle)*.48;
-      if(key==='overview'){
+      if(key==='overview' || fitLower){
         distance=0;
-        for(const dx of [-ex.w/2,ex.w/2])for(const dz of [-ex.d/2,ex.d/2])for(const dy of [-3,5]){
+        const heights=fitLower?[palletBounds.min.y-ex.y,palletBounds.max.y-ex.y]:[-3,5];
+        for(const dx of [-ex.w/2,ex.w/2])for(const dz of [-ex.d/2,ex.d/2])for(const dy of heights){
           const across=dx*Math.cos(az)-dz*Math.sin(az),along=dx*Math.sin(az)+dz*Math.cos(az);
           const elevation=dy*Math.cos(angle)-along*Math.sin(angle);
           const toward=dy*Math.sin(angle)+along*Math.cos(angle);
@@ -238,7 +257,7 @@ export async function openCargo(canvas, onStatus) {
   let previousAspect=0;
   const observer=new ResizeObserver(()=>{
     const rect=canvas.getBoundingClientRect(),ratio=rect.width/rect.height;
-    if(previousAspect && Math.abs(ratio/previousAspect-1)>.15)show(key,mode,focus);else resize();
+    if(previousAspect && Math.abs(ratio/previousAspect-1)>.15)show(page,mode,focus,layer);else resize();
     previousAspect=ratio;
   });observer.observe(canvas);
   const tags=new Map();
@@ -277,7 +296,7 @@ export async function openCargo(canvas, onStatus) {
     if(mode==='3d'){
       if(meshes.sorting.visible)plant.sorting.update(time);
       if(meshes.pallet.visible)plant.pallet.update(time);
-      if(meshes.sorting.visible)plant.chutePacking.update(time);
+      if(plant.chutePacking.group.visible)plant.chutePacking.update(time);
       plant.dockOps.update(time);plant.packing.update(time);hall.receipts.forEach(unit=>unit.update(time));
       hall.additionalReceipts.forEach(unit=>unit.update(time));
     }
@@ -287,7 +306,7 @@ export async function openCargo(canvas, onStatus) {
     renderer.render(scene,camera);positionTags();frameId=requestAnimationFrame(render);
   }
   show('overview','3d',data.site?.floorOperations?0:-1);frameId=requestAnimationFrame(render);
-  return {data,plant,hall,renderer,nav,show,tag,packingLabel,missingCartons:cargoModels.filter(m=>m.id.startsWith('box_cardboard_') && !models[m.id]).length,get time(){return time;}, get view(){return key;},get mode(){return mode;},
+  return {data,plant,hall,renderer,nav,show,tag,packingLabel,missingCartons:cargoModels.filter(m=>m.id.startsWith('box_cardboard_') && !models[m.id]).length,get time(){return time;}, get view(){return page;},get mode(){return mode;},
     setPaused(v){paused=v;},setSpeed(v){speed=v;},seek(t){time=t;},getCamera(){return camera;},getTarget(){return ctrl.target.clone();},
     dispose(){disposed=true;cancelAnimationFrame(frameId);observer.disconnect();ctrl.dispose();
       plant.sorting.disposeSection();

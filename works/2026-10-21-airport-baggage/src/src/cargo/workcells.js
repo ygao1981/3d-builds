@@ -208,11 +208,12 @@ function operator(parent){
 }
 
 export function createChutePacking(sorting,pallet,data){
+  const group=new T.Group();sorting.group.add(group);
   const machine=pallet.movers[0],trip=machine.trips[0],port=trip.outlet;
   const tail=data.sorter.chutes[port][1],at=trip.stop.map((v,i)=>v+data.pallet.offset[i]);
   const top=data.pallet.deck+.145,destination=[at[0],top,at[1]];
   const candidates=sorting.arrivals.filter(e=>e.outlet===port).map(e=>{
-    const parcel=e.box.clone(true);parcel.rotation.set(0,0,0);parcel.visible=false;sorting.group.add(parcel);
+    const parcel=e.box.clone(true);parcel.rotation.set(0,0,0);parcel.visible=false;group.add(parcel);
     return {...e,parcel};
   });
   function next(start){
@@ -223,7 +224,7 @@ export function createChutePacking(sorting,pallet,data){
     }
     return {event:chosen,at:best};
   }
-  const worker=operator(sorting.group);worker.figure.rotation.y=-Math.PI/2;
+  const worker=operator(group);worker.figure.rotation.y=-Math.PI/2;
   function update(time){
     const local=mod(time+machine.offset,machine.cycle);
     const {event,at:arrival}=next(time-local+trip.finish+.20);
@@ -244,7 +245,7 @@ export function createChutePacking(sorting,pallet,data){
     worker.hold(lerp(y+sz[1]*.48,1.05,stepBack),lerp(.83-sz[0]/2,.32,stepBack));
   }
   const firstArrival=next(trip.finish-machine.offset+.20).at;
-  return {update,firstArrival,port,candidates,destination};
+  return {group,update,firstArrival,port,candidates,destination};
 }
 
 export function createPackingOperations(group,s,assets,nearChute){

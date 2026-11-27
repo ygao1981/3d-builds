@@ -16,6 +16,11 @@
 .cargo-main{position:relative;grid-area:main;min-width:0;min-height:0;overflow:hidden}.cargo-main canvas{display:block;width:100%;height:100%;touch-action:none}
 .cargo-caption,.cargo-projections,.cargo-legend{position:absolute;background:rgba(251,253,251,.96);border:1px solid #b3c3bf;border-radius:5px}
 .cargo-caption{left:16px;top:16px;padding:7px 13px;border-left:4px solid var(--teal);pointer-events:none}.cargo-caption span{font:11px/1.4 Consolas,monospace;color:#526a6d}.cargo-caption h2{font-size:18px;line-height:1.4;margin:2px 0 0}
+.cargo-layers{position:absolute;top:calc(100% + 6px);left:-4px;display:flex;width:max-content;gap:2px;padding:3px;border:1px solid #b3c3bf;border-radius:5px;background:#fbfdfb;pointer-events:auto}
+.cargo-layers button{min-height:34px;padding:3px 10px;border:0;border-radius:3px;background:transparent;color:#2c484d;font:inherit;font-size:13px;white-space:nowrap}
+.cargo-layers button:hover{background:#e5efeb}.cargo-layers button[aria-pressed=true]{background:var(--teal);color:white}
+.cargo-layers button:focus-visible{outline:2px solid #9a6516;outline-offset:1px}
+@media(max-width:640px){.cargo-layers button{padding:3px 8px;font-size:12px}}
 .cargo-projections{top:16px;right:16px;display:flex;padding:3px;gap:2px}.cargo-projections button,.cargo-actions button,.cargo-actions select{border:0;border-radius:3px;padding:7px 11px;background:transparent;color:var(--ink);font-size:13px;white-space:nowrap}
 .cargo-projections button[aria-pressed=true]{background:var(--teal);color:white}.cargo-legend{bottom:12px;left:16px;padding:6px 11px;font-size:12px;display:flex;align-items:center;gap:7px;pointer-events:none}.cargo-legend i,.cargo-legend b{width:20px;height:2px;background:#007775}.cargo-legend b{background:#333}
 .cargo-bottom{grid-area:foot;border-top:1px solid var(--line);background:#fafbf9;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 18px}

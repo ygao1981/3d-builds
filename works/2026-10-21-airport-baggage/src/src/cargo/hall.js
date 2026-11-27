@@ -242,7 +242,11 @@ export function createHall(data,assets,texture){
     data.site?[fitReceipt(group,data.site.receipt,assets)]:[];
   const additionalReceipts=(floor?.receipts||[]).map(({at,extension},i)=>fitReceipt(group,at,assets,extension,i+3,dockZ,false));
   const operations=floor?createFloorOperations(group,b,floor,data.site.bounds):null;
-  if(equipment?.serviceDeck)servicePlatform(b,equipment.serviceDeck);
+  const serviceDeck=new T.Group();
+  if(equipment?.serviceDeck){
+    const platform=batch(serviceDeck);servicePlatform(platform,equipment.serviceDeck);
+    platform.finish();group.add(serviceDeck);
+  }
   if(equipment?.receipts){
     const first=receipts[0],last=receipts.at(-1),left=first.at[0]-.68,right=last.at[0]+.68;
     const front=first.at[1]+first.end,back=equipment.sources[0][0][1],middle=(front+back)/2;
@@ -267,5 +271,5 @@ export function createHall(data,assets,texture){
   }
   const buffer=equipment?parcelBuffer(group,b,data.site,data.sorter,assets):null;
   b.finish();upper.finish();
-  return {group,meter:receipts[0],receipts,additionalReceipts,operations,buffer,overhead,dockUpper,bounds:[[x0,dockZ-apronDepth],[x1,z1]]};
+  return {group,meter:receipts[0],receipts,additionalReceipts,operations,buffer,overhead,dockUpper,serviceDeck,bounds:[[x0,dockZ-apronDepth],[x1,z1]]};
 }
